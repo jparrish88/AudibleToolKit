@@ -1,24 +1,36 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
-from urllib.parse import urlencode
-from urllib.request import urlretrieve, FancyURLopener
-import urllib.request as urllib2
-
 from getpass import getpass
 from optparse import OptionParser
 import sys
 import time
 from selenium import webdriver
+#import chromedriver_autoinstaller
+from urllib import urlencode
+from urlparse import urlparse, parse_qs
+import urlparse
+from urllib import urlretrieve, FancyURLopener
+import urllib
+import urllib2
 import hashlib
 import base64
 import os
 import binascii
 import logging
+import selenium
 from selenium.webdriver.support.ui import Select
 import cgi # cgi.parse_header
 import datetime
 import socket
+import json
+
+
+# Global Vars
+basepath = os.path.dirname(os.path.realpath(__file__))
+username = ''
+
+os.chdir(basepath)
 
 def login_audible(driver, options, username, password, base_url, lang):
     # Step 1
@@ -33,11 +45,14 @@ def login_audible(driver, options, username, password, base_url, lang):
     if options.player_id:
         player_id = base64.encodestring(binascii.unhexlify(options.player_id)).rstrip()
     logging.debug("[*] Player ID is %s" % player_id)
-    payload = {'openid.ns':'http://specs.openid.net/auth/2.0', 'openid.identity':'http://specs.openid.net/auth/2.0/identifier_select', 
-        'openid.claimed_id':'http://specs.openid.net/auth/2.0/identifier_select', 
-        'openid.mode':'logout', 
-        'openid.assoc_handle':'amzn_audible_' + lang, 
-        'openid.return_to':base_url + 'player-auth-token?playerType=software&playerId=%s=&bp_ua=y&playerModel=Desktop&playerManufacturer=Audible' % (player_id)}
+    payload = {
+        'openid.ns':'http://specs.openid.net/auth/2.0',
+        'openid.identity':'http://specs.openid.net/auth/2.0/identifier_select',
+        'openid.claimed_id':'http://specs.openid.net/auth/2.0/identifier_select',
+        'openid.mode':'logout',
+        'openid.assoc_handle':'amzn_audible_' + lang,
+        'openid.return_to':base_url + 'player-auth-token?playerType=software&playerId=%s=&bp_ua=y&playerModel=Desktop&playerManufacturer=Audible' % (player_id)
+        }
     query_string = urlencode(payload)
     url = login_url + query_string
     logging.info("Opening Audible for language %s" % (lang))
@@ -57,7 +72,6 @@ def login_audible(driver, options, username, password, base_url, lang):
 def configure_browser(options):
     logging.info("Configuring browser")
 
-    
     opts = webdriver.ChromeOptions()
     
     # Chrome user agent will download files for us
@@ -66,19 +80,25 @@ def configure_browser(options):
     # This user agent will give us files w. download info
     opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko")
     chromePrefs = {
-        "profile.default_content_settings.popups":"0", 
-        "download.default_directory":options.dw_dir}
+        "profile.default_content_settings.popups": "0", 
+        "download.default_directory": options.dw_dir
+        }
     opts.add_experimental_option("prefs", chromePrefs)
     
     if sys.platform == 'win32':
-        chromedriver_path = "chromedriver.exe"
+        chromedriver_path = "../bin/chromedriver.exe"
     else:
-        chromedriver_path = "./chromedriver"
+        chromedriver_path = "../bin/chromedriver"
     
     logging.info("Starting browser")
     
-    driver = webdriver.Chrome(options=opts,
-                              executable_path=chromedriver_path)
+    logging.debug("Chrome Driver Path: "+chromedriver_path)
+
+    driver = webdriver.Chrome(
+        chrome_options=opts,
+        executable_path=chromedriver_path,
+        )
+    driver.implicitly_wait(3) # seconds
     
     return driver
 
@@ -123,21 +143,28 @@ def print_progress(block_count, block_size, total_size):
                   bytes_complete, 
                   total_size))
 
-def download_file(datafile, scraped_title, book, page, maxpage):
+def download_file(audible_id, datafile, meta, book, page, maxpage):
     with open(datafile) as f:
         logging.info("Parsing %s, creating download url" % datafile)
         lines = f.readlines()
 
     dw_options = parse_qs(lines[0])
-    title = dw_options["title"][0]
-    if title != scraped_title:
-        logging.info("Found real title: %s" % (title,))
-    logging.info("Parsed data for book '%s'" % (title,))
+
+    metadata = {}
+    metadata['datfile'] = dw_options
+    metadata['ameta'] = meta
+
+    # Add default metadata vars
+    metadata['ameta']['user'] = username
+    metadata['ameta']['file_checked'] = False
+    metadata['ameta']['file_decrypted'] = False
+    metadata['ameta']['audible_id'] = audible_id
 
     url = dw_options["assemble_url"][0]
 
+    # Build Download URL
     params = {}
-    for param in ["user_id","product_id","codec", "awtype","cust_id"]:
+    for param in ["user_id", "product_id", "codec", "awtype", "cust_id"]:
         if dw_options[param][0] == "LC_64_22050_stereo":
             params[param] = "LC_64_22050_ster"
         else:
@@ -180,6 +207,10 @@ def download_file(datafile, scraped_title, book, page, maxpage):
     filename = filename + "." +  par['filename'].split(".")[-1]
     size = head.info().dict['content-length']
 
+    # Add file data to metadata
+    metadata['ameta']['file_name'] = filename
+    metadata['ameta']['file_size'] = size
+
     logging.info("Filename: %s" % filename)
     logging.info("Size: %s" % size)
 
@@ -191,87 +222,161 @@ def download_file(datafile, scraped_title, book, page, maxpage):
         logging.info("File %s exist, checking size", path)
         if int(size) == os.path.getsize(path):
             logging.info("File %s has correct size, not downloading" % (path,))
-            time.sleep(60) # sleep a minute to not be throttled
-            return False
+            metadata['ameta']['file_checked'] = True
         else:
-            logging.warning("File %s had unexpected size, downloading" % (path,))
-    else:
-        logging.info("File %s does not exist, downloading" % (path,))
+            logging.warning("File %s had unexpected size, deleting file" % (path,))
+            wait_for_file_delete(path)
 
-    if True:
-        opener = LyingFancyURLopener() 
-        local_filename, headers = opener.retrieve(url, path, reporthook=print_progress)
-        #local_filename, headers = urlretrieve(url, path, reporthook=print_progress)
-        
-        #import pdb; pdb.set_trace()
-        
-        #filename = ""
-        #try:
-        #    val, par = cgi.parse_header(headers.dict['content-disposition']) 
-        #    filename = par['filename'].split("_")[0]
-        #    filename = filename + "." +  par['filename'].split(".")[-1]
-        #except KeyError: 
-        #    import pdb; pdb.set_trace()
-        
-        #logging.info("Filename: %s" % filename)
-        #logging.info("Size: %s" % size)
-        
-        #path = "%s%s" % (options.dw_dir, filename)
-        #os.rename(local_filename,path)
-        logging.info("Completed download of '%s' to %s" % (title, path))
-    else:
-        logging.info("Completed download of '%s' to %s (not really)" % (title, path))
-    return True
 
-def wait_for_file_delete(datafile):
-    os.remove(datafile)
+    if not os.path.isfile(path):
+        logging.info("Downloading file %s" % (path,))
+
+        try:
+            opener = LyingFancyURLopener() 
+            local_filename, headers = opener.retrieve(url, path, reporthook=print_progress)
+
+            logging.info("Completed download of '%s' to %s" % (meta['title'], path))
+        except urllib.ContentTooShortError:
+            logging.warning("Error downloading file %s, deleting..." % (path,))
+            wait_for_file_delete(path)
+
+    # Save data to metadata file
+    metadata_path = os.path.normpath(basepath+'/../files/metadata')
+    file_name = audible_id+'.json'
+
+    full_file_path = os.path.normpath(metadata_path+'/'+file_name)
+
+    with open(full_file_path, "w") as f:
+        f.write(json.dumps(metadata, f, indent=4, sort_keys=True))
+        logging.debug('writing metadata')
+
+    logging.info('Sleeping for 20 seconds')
+    time.sleep(20)
+
+    return 1
+
+def wait_for_file_delete(file):
+    os.remove(file)
     retry = 0
     dw_sleep = 2
-    while retry < 5 and os.path.isfile(datafile):
-        logging.info("%s not deleted, sleeping %s seconds (retry #%s)" % (datafile, dw_sleep, retry))
+    while retry < 5 and os.path.isfile(file):
+        logging.info("%s not deleted, sleeping %s seconds (retry #%s)" % (file, dw_sleep, retry))
         retry = retry + 1
         time.sleep(dw_sleep)
-    if os.path.isfile(datafile):
-        logging.critical("OS used more than %s seconds to delete %s, something is wrong, exiting" % (datafile,dw_sleep*retry,))
+    if os.path.isfile(file):
+        logging.critical("OS used more than %s seconds to delete %s, something is wrong, exiting" % (file, dw_sleep*retry,))
         sys.exit(1)
 
 def download_files_on_page(driver, page, maxpage, debug):
     books_downloaded = 0
 
-    trs = driver.find_elements_by_tag_name("tr")
-    for tr in trs:
-        titles = tr.find_elements_by_name("tdTitle")
-        for title_a in titles:
-            #for a in td.find_elements_by_class_name("adbl-prod-title"):
-            title = title_a.text.strip()
-            if title != "":
-                logging.info("Found book: '%s'" % (title,))
-                if not debug:
-                    #for author_ in tr.find_elements_by_class_name("adbl-library-item-author"):
-                    #    print("Author (%s): '%s'" % (c, author_.text.strip()))
-                    for download_a in tr.find_elements_by_class_name("adbl-download-it"):
-                        #print("Download-title (%s): %s" % (c, download_a.get_attribute("title").strip()))
-                            logging.info("Clicking download link for %s" % (title))
-                            download_a.click()
-                            logging.info("Waiting for Chrome to complete download of datafile")
-                            time.sleep(1)
-                            datafile = "%s%s" % (options.dw_dir, "admhelper")
-                            wait_for_download_or_die(datafile)
+    # Find each row
+    rows = driver.find_elements_by_class_name('adbl-library-content-row')
+    for row in rows:
+        meta = {
+            'title': '',
+            'author': '',
+            'narrator': '',
+            'series': '',
+            'book_num': -1,
+        }
 
-                            logging.info("Datafile downloaded")
+        driver.execute_script("arguments[0].scrollIntoView();", row)
 
-                            books_downloaded = books_downloaded + 1
-                            download_file(datafile, title, books_downloaded, page, maxpage)
-                            wait_for_file_delete(datafile)
-                            time.sleep(1)
-                else:
-                    books_downloaded = books_downloaded + 1
-                    logging.info("Debug, no download")
-                    time.sleep(1)
+        # Add row color
+        element = row.find_element_by_class_name('bc-row-responsive')
+        driver.execute_script("arguments[0].classList.add('selected-row');", element)
 
-                logging.info("looping through all download in spesific TR complete")
-        #logging.info("looping through all tdTitle in spesific TR complete")
-    logging.info("Downloaded %s books from this page" % (books_downloaded,))
+        audible_id = row.find_element_by_name('asin').get_attribute('value')
+
+        try:
+            meta['title'] = row.find_element_by_class_name('bc-size-headline3').text
+        except selenium.common.exceptions.NoSuchElementException:
+            pass
+        
+        try:
+            meta['author'] = row.find_element_by_class_name('authorLabel').find_element_by_class_name('bc-size-callout').text
+        except selenium.common.exceptions.NoSuchElementException:
+            pass
+
+        try:
+            meta['narrator'] = row.find_element_by_class_name('narratorLabel').find_element_by_class_name('bc-size-callout').text
+        except selenium.common.exceptions.NoSuchElementException:
+            pass
+
+        try:
+            meta['series'] = row.find_element_by_class_name('seriesLabel').find_element_by_class_name('bc-size-callout').text
+        except selenium.common.exceptions.NoSuchElementException:
+            pass
+
+        try:
+            meta['series'] = row.find_element_by_class_name('seriesLabel').find_element_by_class_name('bc-size-callout').text
+        except selenium.common.exceptions.NoSuchElementException:
+            pass
+
+        logging.info("Found item: (%s) %s by: %s, nat: %s" % (audible_id, meta['title'], meta['author'], meta['narrator']))
+
+        # Check meta data to see if we have already downloaded this file
+        metadata_path = os.path.normpath(basepath+'/../files/metadata')
+        file_name = audible_id+'.json'
+
+        full_file_path = os.path.normpath(metadata_path+'/'+file_name)
+        if os.path.isfile(full_file_path):
+            with open(full_file_path, "r") as f:
+                try:
+                    metadata = json.load(f)
+
+                    if metadata['ameta']['file_checked'] == True:
+                        logging.info('Book confirmed downloaded, skipping...')
+                        continue
+                except ValueError:  # includes simplejson.decoder.JSONDecodeError
+                    logging.warning("Decoding JSON file '"+file_name+"' has failed")
+
+        logging.info('Searching for download button')
+
+        # Disable wait to speed up button search
+        driver.implicitly_wait(0)
+
+        # Look for download button
+        buttons = row.find_elements_by_class_name('bc-text')
+
+        # Look for download button
+        buttons = row.find_elements_by_class_name('adbl-lib-action-download')
+
+        # Search for button that says "Download"
+        link = ''
+        for button in buttons:
+            logging.info('next button')
+            button_text = button.find_element_by_class_name('bc-text').text.strip()
+            
+            logging.info('Found button: '+button_text)
+
+            if button_text == 'Download':
+                logging.debug('Found download button!')
+                link = button.find_element_by_tag_name('a')
+                break
+
+        # Disable wait to speed up this search
+        driver.implicitly_wait(3)
+
+        if not link:
+            logging.info('(-1) No download button, Skipping...')
+            continue
+
+        logging.debug("Download Link: '%s'" % (link.get_attribute('href'),))
+
+        #link.click()
+        #logging.info("Waiting for Chrome to complete download of datafile")
+
+        #datafile = "%s%s" % (options.dw_dir, "admhelper")
+        #wait_for_download_or_die(datafile)
+
+        #logging.debug("Datafile downloaded")
+
+        books_downloaded = books_downloaded + 1
+        download_file(audible_id, datafile, meta, books_downloaded, page, maxpage)
+        wait_for_file_delete(datafile)
+
     return books_downloaded
 
 def configure_audible_library(driver, lang):
@@ -283,68 +388,37 @@ def configure_audible_library(driver, lang):
     driver.get(lib_url)
     time.sleep(2)
 
-    logging.info("Selecting books from 'All Time'")
-    select = Select(driver.find_element_by_id("adbl_time_filter"))
-    select.select_by_value("all")
-    time.sleep(5)
-
-    # Make sure we are getting the ENHANCED format
-    # u'ENHANCED' u'MP332' u'ACELP16' u'ACELP85'
-    s = Select(driver.find_element_by_id("adbl_select_preferred_format"))
-    if len(s.all_selected_options) == 1:
-        if 'ENHANCED' == s.all_selected_options[0].get_attribute("value").strip():
-            logging.info("Selected format was ENHANCED, continuing")
-        else:
-            logging.info("Format was '%s', selecting 'ENHANCED'" % (s.all_selected_options[0].get_attribute("value"),))
-            for opt in s.options:
-                if "ENHANCED" == opt.get_attribute("value"):
-                    opt.click()
-                    time.sleep(5)
-    else:
-        logging.critical("Got more than one adbl_select_preferred_format.all_selected_options")
-        sys.exit(1)
-
-    # Comment out this in hope of not hitting download limit as fast
-    if not ('adbl-sort-down' in driver.find_element_by_id("SortByLength").get_attribute("class")):
-        logging.info("Sorting downloads by shortest to longest")
-        driver.find_element_by_id("SortByLength").click()
-        time.sleep(10)
-    else:
-        logging.info("Downloads were already sorted by shortest to longest, continuing")
 
 def loop_pages(logging, driver):
-    maxpage = 1
-    for link in driver.find_elements_by_class_name("adbl-page-link"):
-        maxpage = max(maxpage, int(link.text))
-
     books_downloaded = 0
 
+    maxpage = int(driver.find_elements_by_class_name('pageNumberElement')[-1].get_attribute('data-value'))
     logging.info("Found %s pages of books" % maxpage)
-    for pagenumz in range(maxpage):
-        pagenum = pagenumz + 1
 
-        logging.info("Scrolling to bottom of page to force loading of content")
-        for x in range(3):
-            # Page is not loaded before we scroll
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)
+    pagenum = 1
+    while True:
+        logging.info("Processing page %s" % pagenum)
 
-        logging.info("Downloading books on page %s" % (pagenum,))
+        script = "var style = document.createElement('style'); style.type = 'text/css'; style.innerText = '.selected-row {border: 3pt solid red !important; padding: 2px !important;}'; document.head.appendChild(style);"
+        driver.execute_script(script)
+
+        # Download books on page
         books_downloaded = books_downloaded + download_files_on_page(driver, pagenum, maxpage, debug=False)
         time.sleep(5)
-        found_next = False
-        logging.info("Looking for link to next page (page %s)" % (pagenum + 1,) )
-        lis = driver.find_elements_by_class_name("adbl-pagination")
-        for li in lis:
-            ls = li.find_elements_by_class_name("adbl-link")
-            for l in ls:
-                if l.text.strip() == "%s" % ((pagenum + 1),):
-                    logging.info("Clicking link for page %s" % ((pagenum + 1),))
-                    found_next = True
-                    l.click()
-                    break;
-            if found_next:
-                break;
+
+        if pagenum == maxpage:
+            break
+
+        # Go to next page
+        button = driver.find_element_by_class_name('nextButton')
+        link = button.find_element_by_tag_name('a')
+
+        script = "arguments[0].click();"
+        driver.execute_script(script, link)
+
+        #link.click()
+
+        pagenum += 1
 
     logging.info("Downloaded or skipped a total of %s books" % (books_downloaded,))
 
@@ -368,7 +442,7 @@ if __name__ == "__main__":
     parser.add_option("-w",
                       action="store",
                       dest="dw_dir",
-                      default="/tmp/audible",
+                      default="/mnt/audibletoolkit/unprocessed",
                       help="Download directory (must exist)",)
     parser.add_option("--user",
                       action="store",
@@ -383,8 +457,15 @@ if __name__ == "__main__":
 
     dt = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
+    basepath = sys.path[0]
+    logpath = os.path.normpath(basepath+'/../log')
+
+    # Make log dir if needed
+    if not os.path.exists(logpath):
+        os.makedirs(logpath)
+
     logging.basicConfig(format='%(levelname)s(#%(lineno)d):%(message)s', 
-        level=logging.INFO, filename="./audible-download-%s.log" % (dt))
+        level=logging.INFO, filename=logpath+"/audible-download-%s.log" % (dt))
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
     (options, args) = parser.parse_args()
@@ -405,7 +486,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     if not options.username:
-        username = input("Username: ")
+        username = raw_input("Username: ")
     else:
         username = options.username
     if not options.password:
@@ -414,7 +495,6 @@ if __name__ == "__main__":
         password = options.password
 
     base_url = 'https://www.audible.com/'
-    base_url_license = 'https://www.audible.com/'
     lang = options.lang
 
     driver = configure_browser(options)

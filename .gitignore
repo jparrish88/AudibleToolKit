@@ -50,4 +50,12 @@ docker-compose.override.yml
 chromedriver
 chromedriver.exe
 
+# Project Folders
+python/files/
+
+# Audible Files
+*.aax
+
+bin
+log
 activation.blob
