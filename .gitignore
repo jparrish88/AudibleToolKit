@@ -42,6 +42,7 @@ Thumbs.db
 *.patch
 *.rej
 *.swo
+*.tmp
 
 # Docker Files
 docker-compose.override.yml
