@@ -34,6 +34,7 @@ class aud_downloader:
     max_pages = 0
     unprocessed_path = ''
     metadata_path = ''
+    chromedriver_path = ''
 
     def __init__(self, **kwargs):
         if 'debug' in kwargs.keys():
@@ -50,6 +51,8 @@ class aud_downloader:
             self.username = kwargs['username']
         if 'password' in kwargs.keys():
             self.password = kwargs['password']
+        if 'chromedriver_path' in kwargs.keys():
+            self.chromedriver_path = kwargs['chromedriver_path']
 
         if os.getenv("DEBUG"):
             self.debug = True
@@ -64,10 +67,10 @@ class aud_downloader:
 
             self.__create_dir(self.data_path)
 
-            self.unprocessed_path = self.data_path+'/unprocessed'
+            self.unprocessed_path = os.path.join(self.data_path, 'unprocessed')
             self.__create_dir(self.unprocessed_path)
 
-            self.metadata_path = self.data_path+'/metadata'
+            self.metadata_path = os.path.join(self.data_path, 'metadata')
             self.__create_dir(self.metadata_path)
 
             logging.info('data_path: '+self.data_path)
@@ -124,18 +127,13 @@ class aud_downloader:
             }
         opts.add_experimental_option("prefs", chromePrefs)
 
-        if sys.platform == 'win32':
-            chromedriver_path = "..\\bin\\chromedriver.exe"
-        else:
-            chromedriver_path = "../bin/chromedriver"
-
         logging.info("Starting browser")
 
-        logging.debug("Chrome Driver Path: "+chromedriver_path)
+        logging.debug("Chrome Driver Path: "+self.chromedriver_path)
 
         self.driver = webdriver.Chrome(
             options=opts,
-            executable_path=chromedriver_path,
+            executable_path=self.chromedriver_path,
             )
         self.driver.implicitly_wait(3) # seconds
 
@@ -213,6 +211,7 @@ class aud_downloader:
         # Find each row
         rows = self.driver.find_elements_by_class_name('adbl-library-content-row')
         for row in rows:
+
             meta = {
                 'audible_id': '',
                 'verified':   False,
@@ -222,6 +221,7 @@ class aud_downloader:
                 'series':     '',
                 'book_num':   -1,
                 'file_size':  0,
+                'file_name':  '',
             }
 
             self.driver.execute_script("arguments[0].scrollIntoView();", row)
@@ -234,6 +234,10 @@ class aud_downloader:
 
             try:
                 meta['title'] = row.find_element_by_class_name('bc-size-headline3').text
+
+                # Remove serires book number
+                meta['title'] = re.sub(r', Book (.*)', '', meta['title'])
+
             except selenium.common.exceptions.NoSuchElementException:
                 pass
 
@@ -257,26 +261,55 @@ class aud_downloader:
             except selenium.common.exceptions.NoSuchElementException:
                 pass
 
-            meta['clean_title'] = re.sub(' ', '_', re.sub(r'[^A-Za-z0-9 ]+', '', meta['title'].lower()))
+            try:
+                seriesLabel = row.find_element_by_class_name('seriesLabel').text
 
-            meta['file_id'] = meta['audible_id']+"-"+meta['clean_title'][:25].rstrip('_')
+                search = re.search('Book (.*)', seriesLabel)
+                meta['book_num'] = search.group().replace('Book ', '')
+            except AttributeError:
+                pass
+            except selenium.common.exceptions.NoSuchElementException:
+                pass
 
-            logging.info("Found item: (%s) %s by: %s, nat: %s" % (meta['audible_id'], meta['title'], meta['author'], meta['narrator']))
+            item_clean_title = re.sub(' ', '_', re.sub(r'[^A-Za-z0-9 ]+', '', meta['title'].lower()))
+
+            item_file_id = meta['audible_id']+"-"+item_clean_title[:25].rstrip('_')
+
+            item_metadata_file = self.metadata_path+'/'+item_file_id+'.json'
+
+            logging.info("Found item: (%s) %s by: %s, nat: %s, booknum: %s" % (meta['audible_id'], meta['title'], meta['author'], meta['narrator'], meta['book_num']))
+
+            # Setup aax file name
+            files = self.__search_for_book_file(self.unprocessed_path, meta['audible_id'], 'aax')
+
+            if len(files) > 0:
+                full_file_path = files[0]
+                if os.path.isfile(full_file_path):
+                    meta['file_name'] = os.path.basename(full_file_path)
+                    logging.info('Found existing aax file: '+meta['file_name'])
+
+            if not meta['file_name']:
+                meta['file_name'] = item_file_id+'.aax'
 
             # Check meta data to see if we have already downloaded this file
-            file_name = meta['file_id']+'.json'
+            files = self.__search_for_book_file(self.metadata_path, meta['audible_id'], 'json')
 
-            full_file_path = os.path.normpath(self.metadata_path+'/'+file_name)
-            if os.path.isfile(full_file_path):
-                with open(full_file_path, "r") as f:
-                    try:
-                        metadata = json.load(f)
+            if len(files) > 0:
+                full_file_path = files[0]
+                if os.path.isfile(full_file_path):
+                    with open(full_file_path, "r") as f:
+                        try:
+                            metadata_save = json.load(f)
 
-                        if metadata['verified'] == True:
-                            logging.info('Book verified downloaded, skipping...')
-                            continue
-                    except ValueError:  # includes simplejson.decoder.JSONDecodeError
-                        logging.warning("Decoding JSON file '"+file_name+"' has failed")
+                            if metadata_save['verified'] == True:
+                                meta['file_size'] = metadata_save['file_size']
+                                meta['verified'] = True
+
+                                self.__save_metadata(item_metadata_file, meta)
+                                logging.info('Book verified downloaded, skipping...')
+                                continue
+                        except ValueError:  # includes simplejson.decoder.JSONDecodeError
+                            logging.warning("Decoding JSON file '"+file_name+"' has failed")
 
             logging.info('Searching for download button')
 
@@ -327,11 +360,11 @@ class aud_downloader:
 
             else:
                 tmp_file = wget.download(url)
-                logging.info("\nDownloaded file: "+file_name)
+                logging.info("\nDownloaded file: "+tmp_file)
 
                 #rename file and move to unprocssed folder
                 _, file_extension = os.path.splitext(tmp_file)
-                meta['file_name'] = meta['file_id']+file_extension
+                meta['file_name'] = item_file_id+file_extension
 
                 local_file_size = os.path.getsize(tmp_file)
 
@@ -348,24 +381,25 @@ class aud_downloader:
                     logging.info("Download verified")
 
             # Save metadata file
-            full_metadata_path = os.path.normpath(self.metadata_path+'/'+meta['file_id']+'.json')
+            self.__save_metadata(item_metadata_file, meta)
 
-            with open(full_metadata_path, "w") as f:
-                json.dump(meta, f, indent=4, sort_keys=True)
-                logging.info('writing metadata')
+    def __save_metadata(self, full_file_path, meta):
+        full_metadata_path = os.path.abspath(full_file_path)
 
-            sys.exit(-1)
+        with open(full_metadata_path, "w") as f:
+            json.dump(meta, f, indent=4, sort_keys=True)
+            logging.info('writing metadata')
 
-    def __wait_for_download_or_die(self, file_path, timeout):
-        retry = 0
-        dl_sleep = 5
-        while (dl_sleep*retry) < timeout and not os.path.isfile(file_path):
-            logging.info("%s not downloaded yet, sleeping %s seconds (retry #%s)" % (file_path, dl_sleep, retry))
-            retry = retry + 1
-            time.sleep(dl_sleep)
-        if not os.path.isfile(file_path):
-            logging.critical("Chrome used more than %s seconds to download %s, something is wrong, exiting" % (dl_sleep*retry, file_path))
-            sys.exit(1)
+
+    def __search_for_book_file(self, folder, audible_id, ext = ''):
+        files = []
+        for fileitem in os.listdir(folder):
+            if os.path.isfile(os.path.join(folder, fileitem)) and fileitem.startswith(audible_id):
+                if not ext or os.path.splitext(fileitem)[-1].lower():
+                    files.append(os.path.join(folder, fileitem))
+
+        return files
+
 
 if __name__ == "__main__":
     def main():
@@ -400,14 +434,19 @@ if __name__ == "__main__":
                         dest="password",
                         default=None,
                         help="Password (optional, will be asked for if not provied)",)
+        parser.add_option("--account-file",
+                        action="store",
+                        dest="account_file",
+                        default=None,
+                        help="JSON Account file (optional)",)
 
         dt = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
         basepath = os.path.dirname(os.path.realpath(__file__))
-        os.chdir(basepath)
+        #os.chdir(basepath)
 
         data_path = os.path.abspath(basepath+'/../files/')
-        logpath = os.path.normpath(data_path+'/../log')
+        logpath = os.path.abspath(data_path+'/../log')
 
         # Make log dir if needed
         if not os.path.exists(logpath):
@@ -424,20 +463,51 @@ if __name__ == "__main__":
 
         (options, args) = parser.parse_args()
 
+        username = ''
+        password = ''
+        player_id = ''
+
+        if options.account_file:
+            logging.info('Loading account info from json file')
+            acc_file_path = os.path.abspath(options.account_file)
+            print(acc_file_path)
+            if os.path.isfile(acc_file_path):
+                with open(acc_file_path, "r") as f:
+                    try:
+                        acc_data = json.load(f)
+
+                        print(acc_data)
+
+                        username = acc_data['user']
+                        password = acc_data['pass']
+                        player_id = acc_data['player_id']
+                    except ValueError:  # includes simplejson.decoder.JSONDecodeError
+                        logging.warning("Decoding Acc JSON file '"+acc_file_path+"' has failed")
+            else:
+                logging.warning("'"+acc_file_path+"' is not an account file")
+
         if options.username:
             username = options.username
-        else:
-            username = raw_input("Username: ")
-
         if options.password:
             password = options.password
-        else:
+
+        # ask for user info if not provided already
+        if not username:
+            username = input("Username: ")
+        if not password:
             password = getpass("Password: ")
+
+        if sys.platform == 'win32':
+            chromedriver_path = os.path.abspath(basepath+"\\..\\bin\\chromedriver.exe")
+        else:
+            chromedriver_path = os.path.abspath(basepath+"/../bin/chromedriver")
 
         dl = aud_downloader(
             data_path = data_path,
             username  = username,
             password  = password,
+            #player_id = player_id, #disable player_id for now since this is broken
+            chromedriver_path = chromedriver_path,
         )
         dl.run()
 
