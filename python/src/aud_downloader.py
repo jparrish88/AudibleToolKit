@@ -215,13 +215,16 @@ class aud_downloader:
             meta = {
                 'audible_id': '',
                 'verified':   False,
+                'decrypted':  False,
                 'title':      '',
                 'author':     '',
                 'narrator':   '',
                 'series':     '',
                 'book_num':   -1,
-                'file_size':  0,
-                'file_name':  '',
+                'encrypted_file_name':  '',
+                'encrypted_file_size':  0,
+                'decrypted_file_name':  '',
+                'decrypted_file_size':  0,
             }
 
             self.driver.execute_script("arguments[0].scrollIntoView();", row)
@@ -275,7 +278,7 @@ class aud_downloader:
 
             item_file_id = meta['audible_id']+"-"+item_clean_title[:25].rstrip('_')
 
-            item_metadata_file = self.metadata_path+'/'+item_file_id+'.json'
+            item_metadata_file = os.path.join(self.metadata_path, item_file_id+'.json')
 
             logging.info("Found item: (%s) %s by: %s, nat: %s, booknum: %s" % (meta['audible_id'], meta['title'], meta['author'], meta['narrator'], meta['book_num']))
 
@@ -285,11 +288,11 @@ class aud_downloader:
             if len(files) > 0:
                 full_file_path = files[0]
                 if os.path.isfile(full_file_path):
-                    meta['file_name'] = os.path.basename(full_file_path)
-                    logging.info('Found existing aax file: '+meta['file_name'])
+                    meta['encrypted_file_name'] = os.path.basename(full_file_path)
+                    logging.info('Found existing aax file: '+meta['encrypted_file_name'])
 
-            if not meta['file_name']:
-                meta['file_name'] = item_file_id+'.aax'
+            if not meta['encrypted_file_name']:
+                meta['encrypted_file_name'] = item_file_id+'.aax'
 
             # Check meta data to see if we have already downloaded this file
             files = self.__search_for_book_file(self.metadata_path, meta['audible_id'], 'json')
@@ -302,7 +305,26 @@ class aud_downloader:
                             metadata_save = json.load(f)
 
                             if metadata_save['verified'] == True:
-                                meta['file_size'] = metadata_save['file_size']
+                                try:
+                                    meta['encrypted_file_size'] = metadata_save['encrypted_file_size']
+                                except KeyError:
+                                    pass
+
+                                try:
+                                    meta['decrypted'] = metadata_save['decrypted']
+                                except KeyError:
+                                    pass
+
+                                try:
+                                    meta['decrypted_file_name'] = metadata_save['decrypted_file_name']
+                                except KeyError:
+                                    pass
+
+                                try:
+                                    meta['decrypted_file_size'] = metadata_save['decrypted_file_size']
+                                except KeyError:
+                                    pass
+
                                 meta['verified'] = True
 
                                 self.__save_metadata(item_metadata_file, meta)
@@ -353,9 +375,9 @@ class aud_downloader:
             response = requests.head(url, allow_redirects=True)
             remote_file_size = response.headers.get('content-length', 0)
 
-            if meta['file_size'] and meta['file_size'] == remote_file_size:
+            if meta['encrypted_file_size'] and meta['encrypted_file_size'] == remote_file_size:
                 logging.info("Book already download and same size, skipping downloading")
-                meta['file_size'] = remote_file_size
+                meta['encrypted_file_size'] = remote_file_size
                 meta['verified'] = True
 
             else:
@@ -364,7 +386,7 @@ class aud_downloader:
 
                 #rename file and move to unprocssed folder
                 _, file_extension = os.path.splitext(tmp_file)
-                meta['file_name'] = item_file_id+file_extension
+                meta['encrypted_file_name'] = item_file_id+file_extension
 
                 local_file_size = os.path.getsize(tmp_file)
 
@@ -372,9 +394,9 @@ class aud_downloader:
                 logging.info('local_file_size: '+str(local_file_size))
 
                 if int(remote_file_size) == int(local_file_size):
-                    full_file_path = self.unprocessed_path+'/'+meta['file_name']
+                    full_file_path = os.path.join(self.unprocessed_path, meta['encrypted_file_name'])
                     shutil.move(tmp_file, full_file_path)
-                    meta['file_size'] = remote_file_size
+                    meta['encrypted_file_size'] = remote_file_size
                     meta['verified'] = True
 
                     self.books_downloaded = self.books_downloaded + 1
@@ -384,6 +406,8 @@ class aud_downloader:
             self.__save_metadata(item_metadata_file, meta)
 
     def __save_metadata(self, full_file_path, meta):
+        print(meta)
+
         full_metadata_path = os.path.abspath(full_file_path)
 
         with open(full_metadata_path, "w") as f:
