@@ -25,6 +25,7 @@ class aud_downloader:
     base_url = 'https://www.audible.com'
     lang = "us"
     player_id = ''
+    activation_bytes = ''
 
     username = ""
     password = ""
@@ -51,6 +52,8 @@ class aud_downloader:
             self.username = kwargs['username']
         if 'password' in kwargs.keys():
             self.password = kwargs['password']
+        if 'activation_bytes' in kwargs.keys():
+            self.activation_bytes = kwargs['activation_bytes']
         if 'chromedriver_path' in kwargs.keys():
             self.chromedriver_path = kwargs['chromedriver_path']
 
@@ -67,15 +70,15 @@ class aud_downloader:
 
             self.__create_dir(self.data_path)
 
-            self.unprocessed_path = os.path.join(self.data_path, 'unprocessed')
-            self.__create_dir(self.unprocessed_path)
-
             self.metadata_path = os.path.join(self.data_path, 'metadata')
             self.__create_dir(self.metadata_path)
 
+            self.unprocessed_path = os.path.join(self.data_path, 'unprocessed')
+            self.__create_dir(self.unprocessed_path)
+
             logging.info('data_path: '+self.data_path)
         else:
-            logging.error('aud_downloader: Missing data_path arg')
+            logging.error('Missing data_path arg')
             sys.exit(1)
 
         if self.lang != "us" and self.base_url.endswith(".com"):
@@ -225,6 +228,7 @@ class aud_downloader:
                 'encrypted_file_size':  0,
                 'decrypted_file_name':  '',
                 'decrypted_file_size':  0,
+                'activation_bytes': self.activation_bytes,
             }
 
             self.driver.execute_script("arguments[0].scrollIntoView();", row)
@@ -306,7 +310,7 @@ class aud_downloader:
 
                             if metadata_save['verified'] == True:
                                 try:
-                                    meta['encrypted_file_size'] = metadata_save['encrypted_file_size']
+                                    meta['encrypted_file_size'] = int(metadata_save['encrypted_file_size'])
                                 except KeyError:
                                     pass
 
@@ -325,11 +329,12 @@ class aud_downloader:
                                 except KeyError:
                                     pass
 
-                                meta['verified'] = True
+                                if int(meta['encrypted_file_size']) > 0:
+                                    meta['verified'] = True
 
-                                self.__save_metadata(item_metadata_file, meta)
-                                logging.info('Book verified downloaded, skipping...')
-                                continue
+                                    self.__save_metadata(item_metadata_file, meta)
+                                    logging.info('Book verified downloaded, skipping...')
+                                    continue
                         except ValueError:  # includes simplejson.decoder.JSONDecodeError
                             logging.warning("Decoding JSON file '"+file_name+"' has failed")
 
@@ -371,16 +376,26 @@ class aud_downloader:
                 logging.info('Book already verified, Skipping...')
                 continue
 
+            # If the saved file size is empty, check the existing file
+            local_file = os.path.join(self.unprocessed_path, meta['encrypted_file_name'])
+            if int(meta['encrypted_file_size']) < 1 and os.path.isfile(local_file):
+                logging.warning("saved file size invalid, updating from local file")
+                meta['encrypted_file_size'] = os.path.getsize(local_file)
+
             # Check "Content-Length" of file
             response = requests.head(url, allow_redirects=True)
             remote_file_size = response.headers.get('content-length', 0)
 
-            if meta['encrypted_file_size'] and meta['encrypted_file_size'] == remote_file_size:
+            if meta['encrypted_file_size'] and int(meta['encrypted_file_size']) == int(remote_file_size):
                 logging.info("Book already download and same size, skipping downloading")
-                meta['encrypted_file_size'] = remote_file_size
+                meta['encrypted_file_size'] = int(remote_file_size)
                 meta['verified'] = True
 
             else:
+                if int(meta['encrypted_file_size']) > 0:
+                    logging.warning("File size not correct, expected "+str(meta['encrypted_file_size'])+", found "+str(remote_file_size))
+
+                logging.info("Downloading file")
                 tmp_file = wget.download(url)
                 logging.info("\nDownloaded file: "+tmp_file)
 
@@ -396,8 +411,9 @@ class aud_downloader:
                 if int(remote_file_size) == int(local_file_size):
                     full_file_path = os.path.join(self.unprocessed_path, meta['encrypted_file_name'])
                     shutil.move(tmp_file, full_file_path)
-                    meta['encrypted_file_size'] = remote_file_size
+                    meta['encrypted_file_size'] = int(remote_file_size)
                     meta['verified'] = True
+                    meta['decrypted'] = False
 
                     self.books_downloaded = self.books_downloaded + 1
                     logging.info("Download verified")
@@ -406,8 +422,6 @@ class aud_downloader:
             self.__save_metadata(item_metadata_file, meta)
 
     def __save_metadata(self, full_file_path, meta):
-        print(meta)
-
         full_metadata_path = os.path.abspath(full_file_path)
 
         with open(full_metadata_path, "w") as f:
@@ -443,11 +457,16 @@ if __name__ == "__main__":
                         dest="player_id",
                         default=None,
                         help="Player ID in hex (optional)",)
-        parser.add_option("-w",
+        parser.add_option("--data-path",
                         action="store",
-                        dest="dw_dir",
-                        default="/mnt/audibletoolkit/unprocessed",
-                        help="Download directory (must exist)",)
+                        dest="data_path",
+                        default="/mnt/audibletoolkit/data",
+                        help="data directory",)
+        parser.add_option("--log-path",
+                        action="store",
+                        dest="log_path",
+                        default="/mnt/audibletoolkit/logs",
+                        help="log directory",)
         parser.add_option("--user",
                         action="store",
                         dest="username",
@@ -458,34 +477,38 @@ if __name__ == "__main__":
                         dest="password",
                         default=None,
                         help="Password (optional, will be asked for if not provied)",)
+        parser.add_option("--activation_bytes",
+                        action="store",
+                        dest="activation_bytes",
+                        default=None,
+                        help="activation_bytes (optional, will be asked for if not provied)",)
         parser.add_option("--account-file",
                         action="store",
                         dest="account_file",
                         default=None,
                         help="JSON Account file (optional)",)
+        (options, args) = parser.parse_args()
 
         dt = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
         basepath = os.path.dirname(os.path.realpath(__file__))
         #os.chdir(basepath)
 
-        data_path = os.path.abspath(basepath+'/../files/')
-        logpath = os.path.abspath(data_path+'/../log')
+        data_path = os.path.abspath(basepath+'/../data/')
+        log_path = os.path.abspath(basepath+'/../log/')
 
         # Make log dir if needed
-        if not os.path.exists(logpath):
-            os.makedirs(logpath)
+        if not os.path.exists(log_path):
+            os.makedirs(log_path)
 
         logging.basicConfig(
             format='%(levelname)s(#%(lineno)d):%(message)s',
             level=logging.INFO,
             #level=logging.DEBUG,
-            filename=logpath+"/audible-download-%s.log" % (dt)
+            filename=log_path+"/aud-download-%s.log" % (dt)
         )
         logging.getLogger('undetected_chromedriver').level = logging.INFO
         logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
-
-        (options, args) = parser.parse_args()
 
         username = ''
         password = ''
@@ -505,6 +528,7 @@ if __name__ == "__main__":
                         username = acc_data['user']
                         password = acc_data['pass']
                         player_id = acc_data['player_id']
+                        activation_bytes = acc_data['activation_bytes']
                     except ValueError:  # includes simplejson.decoder.JSONDecodeError
                         logging.warning("Decoding Acc JSON file '"+acc_file_path+"' has failed")
             else:
@@ -514,12 +538,16 @@ if __name__ == "__main__":
             username = options.username
         if options.password:
             password = options.password
+        if options.activation_bytes:
+            activation_bytes = options.activation_bytes
 
         # ask for user info if not provided already
         if not username:
             username = input("Username: ")
         if not password:
             password = getpass("Password: ")
+        if not activation_bytes:
+            password = getpass("Activation Bytes: ")
 
         if sys.platform == 'win32':
             chromedriver_path = os.path.abspath(basepath+"\\..\\bin\\chromedriver.exe")
@@ -530,6 +558,7 @@ if __name__ == "__main__":
             data_path = data_path,
             username  = username,
             password  = password,
+            activation_bytes = activation_bytes,
             #player_id = player_id, #disable player_id for now since this is broken
             chromedriver_path = chromedriver_path,
         )

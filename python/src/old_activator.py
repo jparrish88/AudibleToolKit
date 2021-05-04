@@ -13,15 +13,9 @@ from optparse import OptionParser
 import traceback
 import binascii
 import sys
+from urllib.parse import urlencode
+from urllib.parse import urlparse, parse_qsl
 
-PY3 = sys.version_info[0] == 3
-
-if PY3:
-    from urllib.parse import urlencode
-    from urllib.parse import urlparse, parse_qsl
-else:
-    from urllib import urlencode
-    from urlparse import urlparse, parse_qsl
 
 
 def extract_activation_bytes(data):
@@ -54,8 +48,8 @@ def extract_activation_bytes(data):
     # get the endianness right (reverse string in pairs of 2)
     activation_bytes = b"".join(reversed([activation_bytes[i:i+2] for i in
                                          range(0, len(activation_bytes), 2)]))
-    if PY3:
-        activation_bytes = activation_bytes.decode("ascii")
+
+    activation_bytes = activation_bytes.decode("ascii")
 
     return activation_bytes, output
 
@@ -90,11 +84,9 @@ def fetch_activation_bytes(username, password, options):
         login_url = login_url.replace('.com', "." + lang)
         base_url = base_url.replace('.com', "." + lang)
 
-    if PY3:
-        player_id = base64.encodebytes(hashlib.sha1(b"").digest()).rstrip()  # keep this same to avoid hogging activation slots
-        player_id = player_id.decode("ascii")
-    else:
-        player_id = base64.encodestring(hashlib.sha1(b"").digest()).rstrip()
+    player_id = base64.encodebytes(hashlib.sha1(b"").digest()).rstrip()  # keep this same to avoid hogging activation slots
+    player_id = player_id.decode("ascii")
+
     if options.player_id:
         player_id = base64.encodestring(binascii.unhexlify(options.player_id)).rstrip()
     print("[*] Player ID is %s" % player_id)
@@ -108,11 +100,13 @@ def fetch_activation_bytes(username, password, options):
         'openid.return_to': base_url + 'player-auth-token?playerType=software&playerId=%s=&bp_ua=y&playerModel=Desktop&playerManufacturer=Audible' % (player_id)
     }
 
+    basepath = os.path.dirname(os.path.realpath(__file__))
+
     if options.firefox:
         driver = webdriver.Firefox()
     else:
         if sys.platform == 'win32':
-            chromedriver_path = "chromedriver.exe"
+            chromedriver_path = os.path.abspath(basepath+"\\..\\bin\\chromedriver.exe")
         elif os.path.isfile("/usr/bin/chromedriver"):  # Debian/Ubuntu package's chromedriver path
             chromedriver_path = "/usr/bin/chromedriver"
         elif os.path.isfile("/usr/lib/chromium-browser/chromedriver"):  # Ubuntu package chromedriver path
@@ -146,10 +140,8 @@ def fetch_activation_bytes(username, password, options):
     # After login pause and give user a chance to enter one-time password
     # manually.
     msg = "\nATTENTION: Now you may have to enter a one-time password manually. Once you are done, press enter to continue..."
-    if PY3:
-        input(msg)
-    else:
-        raw_input(msg)
+
+    input(msg)
 
     # Step 2
     driver.get(base_url + 'player-auth-token?playerType=software&bp_ua=y&playerModel=Desktop&playerId=%s&playerManufacturer=Audible&serial=' % (player_id))
@@ -228,10 +220,7 @@ if __name__ == "__main__":
         username = options.username
         password = options.password
     else:
-        if PY3:
-            username = input("Username: ")
-        else:
-            username = raw_input("Username: ")
+        username = input("Username: ")
         password = getpass("Password: ")
 
     fetch_activation_bytes(username, password, options)
