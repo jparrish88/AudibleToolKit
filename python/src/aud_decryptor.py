@@ -94,6 +94,11 @@ class aud_decryptor:
 
                     if meta_data_error:
                         logging.debug(meta)
+
+                        # Delete invalid json file
+                        logging.warning('Deleting invalid json file')
+                        f.close()
+                        os.remove(item_metadata_file)
                         continue
 
                     # File already decrypted and exists, skipping
