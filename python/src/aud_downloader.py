@@ -14,6 +14,7 @@ import shutil
 import json
 import selenium
 #from seleniumwire import webdriver
+import chromedriver_autoinstaller
 from selenium import webdriver
 from optparse import OptionParser
 from getpass import getpass
@@ -494,8 +495,11 @@ if __name__ == "__main__":
         basepath = os.path.dirname(os.path.realpath(__file__))
         #os.chdir(basepath)
 
-        data_path = os.path.abspath(basepath+'/../data/')
-        log_path = os.path.abspath(basepath+'/../log/')
+        # data_path = os.path.abspath(basepath+'/../data/')
+        # log_path = os.path.abspath(basepath+'/../log/')
+
+        data_path = os.path.abspath('/data/')
+        log_path = os.path.abspath('/data/log/')
 
         # Make log dir if needed
         if not os.path.exists(log_path):
@@ -532,7 +536,7 @@ if __name__ == "__main__":
                     except ValueError:  # includes simplejson.decoder.JSONDecodeError
                         logging.warning("Decoding Acc JSON file '"+acc_file_path+"' has failed")
             else:
-                logging.warning("'"+acc_file_path+"' is not an account file")
+                logging.warning("Unable to find account file: '"+acc_file_path+"'")
 
         if options.username:
             username = options.username
@@ -542,17 +546,23 @@ if __name__ == "__main__":
             activation_bytes = options.activation_bytes
 
         # ask for user info if not provided already
-        if not username:
-            username = input("Username: ")
-        if not password:
-            password = getpass("Password: ")
-        if not activation_bytes:
-            password = getpass("Activation Bytes: ")
+        if sys.__stdin__.isatty():
+            if not username:
+                username = input("Username: ")
+            if not password:
+                password = getpass("Password: ")
+            if not activation_bytes:
+                password = getpass("Activation Bytes: ")
 
         if sys.platform == 'win32':
             chromedriver_path = os.path.abspath(basepath+"\\..\\bin\\chromedriver.exe")
         else:
             chromedriver_path = os.path.abspath(basepath+"/../bin/chromedriver")
+
+        # Check if the current version of chromedriver exists
+        # and if it doesn't exist, download it automatically,
+        # then add chromedriver to path
+        chromedriver_autoinstaller.install()
 
         dl = aud_downloader(
             data_path = data_path,
@@ -560,7 +570,7 @@ if __name__ == "__main__":
             password  = password,
             activation_bytes = activation_bytes,
             #player_id = player_id, #disable player_id for now since this is broken
-            chromedriver_path = chromedriver_path,
+            #chromedriver_path = chromedriver_path,
         )
         dl.run()
 

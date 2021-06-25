@@ -1,0 +1,4 @@
+requests
+selenium
+wget
+chromedriver_autoinstaller

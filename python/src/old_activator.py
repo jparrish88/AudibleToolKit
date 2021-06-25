@@ -8,6 +8,7 @@ import hashlib
 import binascii
 import requests
 from getpass import getpass
+import chromedriver_autoinstaller
 from selenium import webdriver
 from optparse import OptionParser
 import traceback
@@ -222,5 +223,10 @@ if __name__ == "__main__":
     else:
         username = input("Username: ")
         password = getpass("Password: ")
+
+    # Check if the current version of chromedriver exists
+    # and if it doesn't exist, download it automatically,
+    # then add chromedriver to path
+    chromedriver_autoinstaller.install(True)
 
     fetch_activation_bytes(username, password, options)

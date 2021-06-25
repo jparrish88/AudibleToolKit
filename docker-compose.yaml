@@ -1,0 +1,15 @@
+---
+version: '3.4'
+
+services:
+  audibletoolkit:
+    #command: runuser -l chrome -c 'python /app/aud_downloader.py --account-file /data/accounts/bskrtich@pm.me.json'
+    #command: python /app/aud_downloader.py --account-file /data/accounts/bskrtich@pm.me.json
+    command: tail -f /dev/null
+    container_name: audibletoolkit
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    volumes:
+      - ./python/data:/data
+      - ./python/src:/app
