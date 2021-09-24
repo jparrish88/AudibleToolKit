@@ -118,25 +118,32 @@ class aud_downloader:
     def __configure_browser(self):
         logging.info("Configuring browser")
 
-        opts = webdriver.ChromeOptions()
+        chrome_options = webdriver.ChromeOptions()
+
+        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko")
+        chrome_options.add_argument("no-sandbox")
+        chrome_options.add_argument('--headless')
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--window-size=800,600")
+        chrome_options.add_argument("--disable-dev-shm-usage")
 
         # This user agent will give us files w. download info
         # This is the old user agent, we are not getting metadata files anymore
-        #opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko")
+        #chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko")
 
-        opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.90 Safari/537.36")
+        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.90 Safari/537.36")
         chromePrefs = {
             "profile.default_content_settings.popups": "0",
             "download.default_directory": self.unprocessed_path,
             }
-        opts.add_experimental_option("prefs", chromePrefs)
+        chrome_options.add_experimental_option("prefs", chromePrefs)
 
         logging.info("Starting browser")
 
         logging.debug("Chrome Driver Path: "+self.chromedriver_path)
 
         self.driver = webdriver.Chrome(
-            options=opts,
+            options=chrome_options,
             executable_path=self.chromedriver_path,
             )
         self.driver.implicitly_wait(3) # seconds
@@ -562,7 +569,7 @@ if __name__ == "__main__":
         # Check if the current version of chromedriver exists
         # and if it doesn't exist, download it automatically,
         # then add chromedriver to path
-        chromedriver_autoinstaller.install()
+        chromedriver_path = chromedriver_autoinstaller.install()
 
         dl = aud_downloader(
             data_path = data_path,
@@ -570,7 +577,7 @@ if __name__ == "__main__":
             password  = password,
             activation_bytes = activation_bytes,
             #player_id = player_id, #disable player_id for now since this is broken
-            #chromedriver_path = chromedriver_path,
+            chromedriver_path = chromedriver_path,
         )
         dl.run()
 

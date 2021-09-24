@@ -60,9 +60,10 @@ class aud_decryptor:
     def run(self, **kwargs):
         logging.info("Starting decryptor")
 
-        ffmpeg_path = "C:\\bin\\ffmpeg\\bin\\ffmpeg.exe"
-        input_file = "C:\\bin\\AudibleToolKit\\python\\files\\unprocessed\\059316735X-false_value_rivers_of_lon.aax"
-        output_file = "C:\\bin\\AudibleToolKit\\python\\files\\processed\\059316735X-false_value_rivers_of_lon.m4b"
+        #ffmpeg_path = "C:\\bin\\ffmpeg\\bin\\ffmpeg.exe"
+        ffmpeg_path = "ffmpeg"
+        #input_file = "C:\\bin\\AudibleToolKit\\python\\files\\unprocessed\\059316735X-false_value_rivers_of_lon.aax"
+        #output_file = "C:\\bin\\AudibleToolKit\\python\\files\\processed\\059316735X-false_value_rivers_of_lon.m4b"
 
         for item_metadata_file in glob.glob(os.path.join(self.metadata_path, '*.json')):
             logging.info(item_metadata_file)

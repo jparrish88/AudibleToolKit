@@ -60,10 +60,6 @@ def fetch_activation_bytes(username, password, options):
     base_url_license = 'https://www.audible.com/'
     lang = options.lang
 
-    # Step 0
-    opts = webdriver.ChromeOptions()
-    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko")
-
     # Step 1
     if '@' in username:  # Amazon login using email address
         login_url = "https://www.amazon.com/ap/signin?"
@@ -106,20 +102,30 @@ def fetch_activation_bytes(username, password, options):
     if options.firefox:
         driver = webdriver.Firefox()
     else:
-        if sys.platform == 'win32':
-            chromedriver_path = os.path.abspath(basepath+"\\..\\bin\\chromedriver.exe")
-        elif os.path.isfile("/usr/bin/chromedriver"):  # Debian/Ubuntu package's chromedriver path
-            chromedriver_path = "/usr/bin/chromedriver"
-        elif os.path.isfile("/usr/lib/chromium-browser/chromedriver"):  # Ubuntu package chromedriver path
-            chromedriver_path = "/usr/lib/chromium-browser/chromedriver"
-        elif os.path.isfile("/usr/local/bin/chromedriver"):  # macOS + Homebrew
-            chromedriver_path = "/usr/local/bin/chromedriver"
-        else:
-            chromedriver_path = "./chromedriver"
+        # if sys.platform == 'win32':
+        #     chromedriver_path = os.path.abspath(basepath+"\\..\\bin\\chromedriver.exe")
+        # elif os.path.isfile("/usr/bin/chromedriver"):  # Debian/Ubuntu package's chromedriver path
+        #     chromedriver_path = "/usr/bin/chromedriver"
+        # elif os.path.isfile("/usr/lib/chromium-browser/chromedriver"):  # Ubuntu package chromedriver path
+        #     chromedriver_path = "/usr/lib/chromium-browser/chromedriver"
+        # elif os.path.isfile("/usr/local/bin/chromedriver"):  # macOS + Homebrew
+        #     chromedriver_path = "/usr/local/bin/chromedriver"
+        # else:
+        #     chromedriver_path = "./chromedriver"
 
+        chromedriver_path = chromedriver_autoinstaller.install()
 
-        driver = webdriver.Chrome(options=opts,
+        chrome_options = webdriver.ChromeOptions()
+        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko")
+        chrome_options.add_argument("no-sandbox")
+        chrome_options.add_argument('--headless')
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--window-size=800,600")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+
+        driver = webdriver.Chrome(options=chrome_options,
                                   executable_path=chromedriver_path)
+
 
     query_string = urlencode(payload)
     url = login_url + query_string
@@ -227,6 +233,6 @@ if __name__ == "__main__":
     # Check if the current version of chromedriver exists
     # and if it doesn't exist, download it automatically,
     # then add chromedriver to path
-    chromedriver_autoinstaller.install(True)
+    driver_path = chromedriver_autoinstaller.install()
 
     fetch_activation_bytes(username, password, options)
