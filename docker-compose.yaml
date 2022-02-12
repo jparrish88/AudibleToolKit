@@ -11,6 +11,13 @@ services:
       context: ./python
       dockerfile: Dockerfile
     volumes:
-      #- ./python/data:/data
-      - /mnt/media/audiobooks/_AudibleToolKit:/data
       - ./python/src:/app
+      - /opt/docker-config/audibletoolkit:/config
+      - nfs-media:/mnt/media
+
+volumes:
+  nfs-media:
+    driver_opts:
+      type: "nfs"
+      o: "addr=10.1.1.20,nolock,rw,soft,nfsvers=3"
+      device: ":/volume1/media"

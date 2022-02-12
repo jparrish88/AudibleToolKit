@@ -156,6 +156,8 @@ def fetch_activation_bytes(username, password, options):
     o = urlparse(current_url)
     data = dict(parse_qsl(o.query))
 
+    print(data)
+
     # Step 2.5, switch User-Agent to "Audible Download Manager"
     headers = {
         'User-Agent': "Audible Download Manager",

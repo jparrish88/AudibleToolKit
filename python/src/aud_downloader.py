@@ -15,9 +15,13 @@ import json
 import selenium
 #from seleniumwire import webdriver
 import chromedriver_autoinstaller
-from selenium import webdriver
 from optparse import OptionParser
 from getpass import getpass
+
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+#from webdriver_manager.chrome import ChromeDriverManager
 
 
 class aud_downloader:
@@ -144,7 +148,7 @@ class aud_downloader:
 
         self.driver = webdriver.Chrome(
             options=chrome_options,
-            executable_path=self.chromedriver_path,
+            service=Service(self.chromedriver_path),
             )
         self.driver.implicitly_wait(3) # seconds
 
@@ -177,9 +181,9 @@ class aud_downloader:
         self.driver.get(self.base_url + '/?ipRedirectOverride=true')
         logging.info("Logging in to Amazon/Audible")
         self.driver.get(url)
-        search_box = self.driver.find_element_by_id('ap_email')
+        search_box = self.driver.find_element(By.ID, 'ap_email')
         search_box.send_keys(self.username)
-        search_box = self.driver.find_element_by_id('ap_password')
+        search_box = self.driver.find_element(By.ID, 'ap_password')
         search_box.send_keys(self.password)
         if self.debug: # enable if you hit CAPTCHA or 2FA or other "security" screens
             logging.warning("[!] Running in DEBUG mode. You will need to login in a semi-automatic way, wait for the login screen to show up ;)")
@@ -189,9 +193,6 @@ class aud_downloader:
 
     def __loop_pages(self):
         books_downloaded = 0
-
-        self.max_pages = int(self.driver.find_elements_by_class_name('pageNumberElement')[-1].get_attribute('data-value'))
-        logging.info("Found %s pages of books" % self.max_pages)
 
         pagenum = 1
         while True:
@@ -204,13 +205,15 @@ class aud_downloader:
             self.__download_files_on_page()
             time.sleep(5)
 
-            if pagenum == self.max_pages:
+            # Find the next button
+            button = self.driver.find_element(By.CLASS_NAME, 'nextButton')
+
+            if 'bc-button-disabled' in button.get_attribute('class').split():
                 break
 
-            # Go to next page
-            button = self.driver.find_element_by_class_name('nextButton')
-            link = button.find_element_by_tag_name('a')
+            link = button.find_element(By.TAG_NAME, 'a')
 
+            # Go to next page
             script = "arguments[0].click();"
             self.driver.execute_script(script, link)
 
@@ -220,7 +223,7 @@ class aud_downloader:
 
     def __download_files_on_page(self):
         # Find each row
-        rows = self.driver.find_elements_by_class_name('adbl-library-content-row')
+        rows = self.driver.find_elements(By.CLASS_NAME, 'adbl-library-content-row')
         for row in rows:
 
             meta = {
@@ -242,13 +245,13 @@ class aud_downloader:
             self.driver.execute_script("arguments[0].scrollIntoView();", row)
 
             # Add row color
-            element = row.find_element_by_class_name('bc-row-responsive')
+            element = row.find_element(By.CLASS_NAME, 'bc-row-responsive')
             self.driver.execute_script("arguments[0].classList.add('selected-row');", element)
 
-            meta['audible_id'] = row.find_element_by_name('asin').get_attribute('value')
+            meta['audible_id'] = row.find_element(By.NAME, 'asin').get_attribute('value')
 
             try:
-                meta['title'] = row.find_element_by_class_name('bc-size-headline3').text
+                meta['title'] = row.find_element(By.CLASS_NAME, 'bc-size-headline3').text
 
                 # Remove serires book number
                 meta['title'] = re.sub(r', Book (.*)', '', meta['title'])
@@ -257,27 +260,27 @@ class aud_downloader:
                 pass
 
             try:
-                meta['author'] = row.find_element_by_class_name('authorLabel').find_element_by_class_name('bc-size-callout').text
+                meta['author'] = row.find_element(By.CLASS_NAME, 'authorLabel').find_element(By.CLASS_NAME, 'bc-size-callout').text
             except selenium.common.exceptions.NoSuchElementException:
                 pass
 
             try:
-                meta['narrator'] = row.find_element_by_class_name('narratorLabel').find_element_by_class_name('bc-size-callout').text
+                meta['narrator'] = row.find_element(By.CLASS_NAME, 'narratorLabel').find_element(By.CLASS_NAME, 'bc-size-callout').text
             except selenium.common.exceptions.NoSuchElementException:
                 pass
 
             try:
-                meta['series'] = row.find_element_by_class_name('seriesLabel').find_element_by_class_name('bc-size-callout').text
+                meta['series'] = row.find_element(By.CLASS_NAME, 'seriesLabel').find_element(By.CLASS_NAME, 'bc-size-callout').text
             except selenium.common.exceptions.NoSuchElementException:
                 pass
 
             try:
-                meta['series'] = row.find_element_by_class_name('seriesLabel').find_element_by_class_name('bc-size-callout').text
+                meta['series'] = row.find_element(By.CLASS_NAME, 'seriesLabel').find_element(By.CLASS_NAME, 'bc-size-callout').text
             except selenium.common.exceptions.NoSuchElementException:
                 pass
 
             try:
-                seriesLabel = row.find_element_by_class_name('seriesLabel').text
+                seriesLabel = row.find_element(By.CLASS_NAME, 'seriesLabel').text
 
                 search = re.search('Book (.*)', seriesLabel)
                 meta['book_num'] = search.group().replace('Book ', '')
@@ -352,22 +355,22 @@ class aud_downloader:
             self.driver.implicitly_wait(0)
 
             # Look for download button
-            buttons = row.find_elements_by_class_name('bc-text')
+            #buttons = row.find_element(By.CLASS_NAME, 'bc-text')
 
             # Look for download button
-            buttons = row.find_elements_by_class_name('adbl-lib-action-download')
+            buttons = row.find_elements(By.CLASS_NAME, 'adbl-lib-action-download')
 
             # Search for button that says "Download"
             link = ''
             for button in buttons:
                 logging.info('next button')
-                button_text = button.find_element_by_class_name('bc-text').text.strip()
+                button_text = button.find_element(By.CLASS_NAME, 'bc-text').text.strip()
 
                 logging.info('Found button: '+button_text)
 
                 if button_text == 'Download':
                     logging.debug('Found download button!')
-                    link = button.find_element_by_tag_name('a')
+                    link = button.find_element(By.TAG_NAME, 'a')
                     break
 
             # Disable wait to speed up this search
@@ -468,12 +471,12 @@ if __name__ == "__main__":
         parser.add_option("--data-path",
                         action="store",
                         dest="data_path",
-                        default="/mnt/audibletoolkit/data",
+                        default="/mnt/media/downloads/audibletoolkit",
                         help="data directory",)
         parser.add_option("--log-path",
                         action="store",
                         dest="log_path",
-                        default="/mnt/audibletoolkit/logs",
+                        default="/mnt/media/downloads/audibletoolkit/logs",
                         help="log directory",)
         parser.add_option("--user",
                         action="store",
@@ -500,13 +503,10 @@ if __name__ == "__main__":
         dt = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
         basepath = os.path.dirname(os.path.realpath(__file__))
-        #os.chdir(basepath)
+        os.chdir(basepath)
 
-        # data_path = os.path.abspath(basepath+'/../data/')
-        # log_path = os.path.abspath(basepath+'/../log/')
-
-        data_path = os.path.abspath('/data/')
-        log_path = os.path.abspath('/data/log/')
+        data_path = options.data_path
+        log_path = options.log_path
 
         # Make log dir if needed
         if not os.path.exists(log_path):

@@ -162,22 +162,22 @@ if __name__ == "__main__":
         parser.add_option("--data-path",
                         action="store",
                         dest="data_path",
-                        default="/mnt/audibletoolkit/data",
+                        default="/mnt/media/downloads/audibletoolkit",
                         help="data directory",)
         parser.add_option("--log-path",
                         action="store",
                         dest="log_path",
-                        default="/mnt/audibletoolkit/logs",
+                        default="/mnt/media/downloads/audibletoolkit/logs",
                         help="log directory",)
         (options, args) = parser.parse_args()
 
         dt = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
         basepath = os.path.dirname(os.path.realpath(__file__))
-        #os.chdir(basepath)
+        os.chdir(basepath)
 
-        data_path = os.path.abspath(basepath+'/../data/')
-        log_path = os.path.abspath(basepath+'/../log/')
+        data_path = options.data_path
+        log_path = options.log_path
 
         # Make log dir if needed
         if not os.path.exists(log_path):
