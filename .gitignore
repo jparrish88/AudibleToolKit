@@ -52,8 +52,8 @@ chromedriver
 chromedriver.exe
 
 # Project Folders
-python/data/
-python/log/
+data/
+config/
 
 # Audible Files
 *.aax
