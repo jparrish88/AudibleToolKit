@@ -12,6 +12,7 @@ import wget
 import requests
 import shutil
 import json
+from distutils.util import strtobool
 import selenium
 #from seleniumwire import webdriver
 import chromedriver_autoinstaller
@@ -41,6 +42,7 @@ class aud_downloader:
     unprocessed_path = ''
     metadata_path = ''
     chromedriver_path = ''
+    headless = True
 
     def __init__(self, **kwargs):
         if 'debug' in kwargs.keys():
@@ -61,6 +63,8 @@ class aud_downloader:
             self.activation_bytes = kwargs['activation_bytes']
         if 'chromedriver_path' in kwargs.keys():
             self.chromedriver_path = kwargs['chromedriver_path']
+        if 'headless' in kwargs.keys():
+            self.headless = kwargs['headless']
 
         if os.getenv("DEBUG"):
             self.debug = True
@@ -125,11 +129,14 @@ class aud_downloader:
         chrome_options = webdriver.ChromeOptions()
 
         chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko")
-        chrome_options.add_argument("no-sandbox")
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--window-size=800,600")
-        chrome_options.add_argument("--disable-dev-shm-usage")
+
+        if self.headless:
+            logging.info("Configuring headless mode")
+            chrome_options.add_argument("no-sandbox")
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--window-size=800,600")
+            chrome_options.add_argument("--disable-dev-shm-usage")
 
         # This user agent will give us files w. download info
         # This is the old user agent, we are not getting metadata files anymore
@@ -190,6 +197,16 @@ class aud_downloader:
             time.sleep(32)
         else:
             search_box.submit()
+
+        # Check for alert boxes for errors
+        try:
+            logging.info("Checking for alert box")
+            alert_box = self.driver.find_element(By.CLASS_NAME, 'a-alert-content')
+            logging.error(alert_box.text)
+            logging.error("Quitting!")
+            exit(21)
+        except selenium.common.exceptions.NoSuchElementException:
+            pass
 
     def __loop_pages(self):
         books_downloaded = 0
@@ -498,12 +515,19 @@ if __name__ == "__main__":
                         dest="account_file",
                         default=None,
                         help="JSON Account file (optional)",)
+        parser.add_option("--headless",
+                        action="store",
+                        dest="headless",
+                        default=True,
+                        help="Run in headless mode (optional)",)
         (options, args) = parser.parse_args()
 
         dt = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
         basepath = os.path.dirname(os.path.realpath(__file__))
-        os.chdir(basepath)
+
+        # Dont change to the script path since we want to work from whereever
+        #os.chdir(basepath)
 
         data_path = options.data_path
         log_path = options.log_path
@@ -562,14 +586,14 @@ if __name__ == "__main__":
                 password = getpass("Activation Bytes: ")
 
         if sys.platform == 'win32':
-            chromedriver_path = os.path.abspath(basepath+"\\..\\bin\\chromedriver.exe")
+            chromedriver_path = os.path.abspath(basepath+"\\..\\bin\\")
         else:
-            chromedriver_path = os.path.abspath(basepath+"/../bin/chromedriver")
+            chromedriver_path = os.path.abspath(basepath+"/../bin/")
 
         # Check if the current version of chromedriver exists
         # and if it doesn't exist, download it automatically,
         # then add chromedriver to path
-        chromedriver_path = chromedriver_autoinstaller.install()
+        chromedriver_path = chromedriver_autoinstaller.install(path = chromedriver_path)
 
         dl = aud_downloader(
             data_path = data_path,
@@ -578,6 +602,7 @@ if __name__ == "__main__":
             activation_bytes = activation_bytes,
             #player_id = player_id, #disable player_id for now since this is broken
             chromedriver_path = chromedriver_path,
+            headless = bool(strtobool(options.headless)),
         )
         dl.run()
 
