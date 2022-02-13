@@ -518,7 +518,7 @@ if __name__ == "__main__":
         parser.add_option("--headless",
                         action="store",
                         dest="headless",
-                        default=True,
+                        default="True", # Use a string here since we are going to convert it anyway
                         help="Run in headless mode (optional)",)
         (options, args) = parser.parse_args()
 
