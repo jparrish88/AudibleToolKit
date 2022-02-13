@@ -324,15 +324,6 @@ class aud_downloader:
 
             item_metadata_file = os.path.join(self.metadata_path, item_file_id+'.json')
 
-            logging.info("")
-            logging.info("Found item: (%s)" % (meta['audible_id']))
-            logging.info("Title:    %s" % (meta['title']))
-            logging.info("Author:   %s" % (meta['author']))
-            logging.info("Narrator: %s" % (meta['narrator']))
-            logging.info("Series:   %s" % (meta['series']))
-            logging.info("Book Num: %s" % (meta['book_num']))
-            logging.info("")
-
             # Setup aax file name
             files = self.__search_for_book_file(self.unprocessed_path, meta['audible_id'], 'aax')
 
@@ -347,6 +338,18 @@ class aud_downloader:
 
             # Check meta data to see if we have already downloaded this file
             files = self.__search_for_book_file(self.metadata_path, meta['audible_id'], 'json')
+
+            logging.info("")
+            logging.info("Found item: %s" % (meta['audible_id']))
+            logging.info("Title:      %s" % (meta['title']))
+            logging.info("Author:     %s" % (meta['author']))
+            logging.info("Narrator:   %s" % (meta['narrator']))
+            logging.info("Series:     %s" % (meta['series']))
+            logging.info("Book Num:   %s" % (meta['book_num']))
+            logging.info("")
+            logging.info("json file:  %s" % (item_file_id+".json"))
+            logging.info("enc file:   %s" % (meta['encrypted_file_name']))
+            logging.info("")
 
             if len(files) > 0:
                 full_file_path = files[0]
