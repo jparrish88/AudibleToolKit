@@ -4,12 +4,14 @@ import datetime
 import logging
 import glob
 import json
+import re
 
 from optparse import OptionParser
 
-class aud_decryptor:
+class aud_sorter:
     debug = False
     data_path = ''
+    media_path = ''
 
     unprocessed_path = ''
     metadata_path = ''
@@ -19,6 +21,8 @@ class aud_decryptor:
             self.debug = kwargs['debug']
         if 'data_path' in kwargs.keys():
             self.data_path = kwargs['data_path']
+        if 'media_path' in kwargs.keys():
+            self.media_path = kwargs['media_path']
 
         if os.getenv("DEBUG"):
             self.debug = True
@@ -58,89 +62,103 @@ class aud_decryptor:
 
     # Decrypt all the audio books
     def run(self, **kwargs):
-        logging.info("Starting decryptor")
+        logging.info("Starting sorter")
 
-        ffmpeg_path = "ffmpeg"
+        count = 0
 
         for item_metadata_file in glob.glob(os.path.join(self.metadata_path, '*.json')):
-            logging.info(item_metadata_file)
+            #logging.info(item_metadata_file)
             with open(item_metadata_file, "r") as f:
                 try:
                     meta = json.load(f)
-
-                    #logging.debug(meta)
-                    # Check for needed meta data
-                    meta_data_error = False
-                    if not 'verified' in meta:
-                        meta_data_error = True
-                        logging.error('verified value missing')
-                    else:
-                        if meta['verified'] != True:
-                            logging.warning('verified is not true, skipping')
-
-                    if not 'decrypted' in meta:
-                        meta_data_error = True
-                        logging.error('decrypted value missing')
-
-                    if not 'activation_bytes' in meta:
-                        meta_data_error = True
-                        logging.error('activation_bytes value missing')
-
-                    if not 'encrypted_file_name' in meta:
-                        meta_data_error = True
-                        logging.error('encrypted_file_name value missing')
-
-                    if meta_data_error:
-                        logging.debug(meta)
-
-                        # Delete invalid json file
-                        logging.warning('Deleting invalid json file')
-                        f.close()
-                        os.remove(item_metadata_file)
-                        continue
-
-                    # File already decrypted and exists, skipping
-                    if 'decrypted' in meta and meta['decrypted'] == True:
-                        self.__save_metadata(item_metadata_file, meta)
-                        logging.info('Book already decrypted, skipping...')
-                        continue
-
-                    # Check if source file exists
-                    input_file = os.path.join(self.unprocessed_path, meta['encrypted_file_name'])
-                    if not os.path.isfile(input_file):
-                        logging.error('encrypted file is missing, skipping...')
-                        continue
-
-                    # Check if dest file doesnt exist, delete if needed
-                    meta['decrypted_file_name'] = meta['encrypted_file_name'].replace('aax', 'm4b')
-                    output_file = os.path.join(self.processed_path, meta['decrypted_file_name'])
-                    if os.path.isfile(output_file):
-                        logging.warning("decrypted file '"+meta['decrypted_file_name']+"' already exists, deleting")
-                        os.remove(output_file)
-
-                    # Decrypt file
-                    return_value = os.system(ffmpeg_path+" -activation_bytes "+meta['activation_bytes']+" -i "+input_file+" -c copy "+output_file)
-
-                    if return_value != 0:
-                        logging.warning("Something may have gone wrong, recvived non-zero return value: "+str(return_value))
-                        meta['verified'] = False
-                        self.__save_metadata(item_metadata_file, meta)
-
-                    # Check if output file exists and is a good size
-                    if os.path.isfile(output_file):
-                        output_file_size = os.path.getsize(output_file)
-                        if output_file_size > 10:
-                            meta['decrypted'] = True
-                            meta['decrypted_file_size'] = output_file_size
-
-                            self.__save_metadata(item_metadata_file, meta)
-
-                            logging.info('Book verified decrypted')
-
-
-
                 except ValueError:  # includes simplejson.decoder.JSONDecodeError
                     logging.warning("Decoding JSON file '"+item_metadata_file+"' has failed")
+                    continue
+
+                #logging.debug(meta)
+                # Check for needed meta data
+                meta_data_error = False
+                if not 'verified' in meta:
+                    meta_data_error = True
+                    logging.error('verified value missing '+item_metadata_file)
+                    continue
+                else:
+                    if meta['verified'] != True:
+                        logging.warning('verified is not true, skipping '+item_metadata_file)
+                        continue
+
+                if not 'decrypted' in meta:
+                    meta_data_error = True
+                    logging.error('decrypted value missing')
+
+                if meta_data_error:
+                    logging.debug(meta)
+
+                    # Delete invalid json file
+                    logging.warning('invalid json file')
+                    f.close()
+                    continue
+
+                # File not decrypted, skipping
+                if meta['decrypted'] == False:
+                    logging.info('Book not decrypted, skipping... '+item_metadata_file)
+                    continue
+
+                # Check if decrypted file exists
+                source_file = os.path.join(self.processed_path, meta['decrypted_file_name'])
+                if not os.path.isfile(source_file):
+                    logging.error('decrypted file is missing, skipping... '+item_metadata_file)
+                    continue
+
+                #print(source_file)
+
+                author = meta['author']
+                author = author.replace("- editor", "")
+                author = author.strip()
+
+                # Check if book is in a series
+                if meta['book_num'] == -1:
+                    title = meta['title']
+
+                    dest_name = os.path.join(
+                        self.media_path,
+                        author,
+                        title,
+                        meta['decrypted_file_name']
+                        )
+                else:
+                    series_name = meta['series']
+                    series_name = series_name.replace("(Unabridged)", "")
+                    series_name = re.sub('^%s' % "The", "", series_name)
+                    series_name = series_name.strip()
+
+                    if not series_name.lower().endswith("trilogy") and \
+                        not series_name.lower().endswith("novels") and \
+                        not series_name.lower().endswith("series"):
+                        series_name = series_name+" Series"
+
+                    book_num = meta['book_num']
+                    #book_num = book_num.split(',')[0]
+                    if len(book_num) == 1:
+                        book_num = '0'+book_num
+
+                    title = meta['title']
+                    #title = ("Book {:02f} - "+meta['title']).format(float(meta['book_num']))
+
+                    if len(book_num) > 3:
+                        count = count + 1
+                        #print(book_num+"      "+item_metadata_file)
+
+                    dest_name = os.path.join(
+                        self.media_path,
+                        author,
+                        series_name,
+                        title,
+                        meta['decrypted_file_name']
+                        )
+
+                    #print(dest_name)
+        print(count)
 
     def __save_metadata(self, full_file_path, meta):
         full_metadata_path = os.path.abspath(full_file_path)
@@ -163,6 +181,11 @@ if __name__ == "__main__":
                         dest="data_path",
                         default="/mnt/media/downloads/audibletoolkit",
                         help="data directory",)
+        parser.add_option("--media-path",
+                        action="store",
+                        dest="media_path",
+                        default="/mnt/media/audiobooks",
+                        help="data directory",)
         parser.add_option("--log-path",
                         action="store",
                         dest="log_path",
@@ -176,6 +199,7 @@ if __name__ == "__main__":
         os.chdir(basepath)
 
         data_path = options.data_path
+        media_path = options.media_path
         log_path = options.log_path
 
         # Make log dir if needed
@@ -189,13 +213,14 @@ if __name__ == "__main__":
         logging.basicConfig(
             format='%(levelname)s(#%(lineno)d):%(message)s',
             level=log_level,
-            filename=log_path+"/aud-decryptor-%s.log" % (dt)
+            filename=log_path+"/aud-sorter-%s.log" % (dt)
         )
         logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
-        dc = aud_decryptor(
+        sorter = aud_sorter(
             data_path = data_path,
+            media_path = media_path,
         )
-        dc.run()
+        sorter.run()
 
     main()

@@ -12,7 +12,6 @@ import wget
 import requests
 import shutil
 import json
-from distutils.util import strtobool
 import selenium
 #from seleniumwire import webdriver
 import chromedriver_autoinstaller
@@ -23,6 +22,24 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 #from webdriver_manager.chrome import ChromeDriverManager
+
+
+def strtobool(val):
+    """Convert a string representation of truth to true (1) or false (0).
+    True values are 'y', 'yes', 't', 'true', 'on', and '1'; false values
+    are 'n', 'no', 'f', 'false', 'off', and '0'.  Raises ValueError if
+    'val' is anything else.
+    """
+    if isinstance(val, bool):
+        return val
+
+    val = val.lower()
+    if val in ('y', 'yes', 't', 'true', 'on', '1'):
+        return 1
+    elif val in ('n', 'no', 'f', 'false', 'off', '0'):
+        return 0
+    else:
+        raise ValueError("invalid truth value %r" % (val,))
 
 
 class aud_downloader:
@@ -292,14 +309,9 @@ class aud_downloader:
                 pass
 
             try:
-                meta['series'] = row.find_element(By.CLASS_NAME, 'seriesLabel').find_element(By.CLASS_NAME, 'bc-size-callout').text
-            except selenium.common.exceptions.NoSuchElementException:
-                pass
-
-            try:
                 seriesLabel = row.find_element(By.CLASS_NAME, 'seriesLabel').text
 
-                search = re.search('Book (.*)', seriesLabel)
+                search = re.search('Book ([\d.-]+)', seriesLabel)
                 meta['book_num'] = search.group().replace('Book ', '')
             except AttributeError:
                 pass
@@ -312,7 +324,14 @@ class aud_downloader:
 
             item_metadata_file = os.path.join(self.metadata_path, item_file_id+'.json')
 
-            logging.info("Found item: (%s) %s by: %s, nat: %s, booknum: %s" % (meta['audible_id'], meta['title'], meta['author'], meta['narrator'], meta['book_num']))
+            logging.info("")
+            logging.info("Found item: (%s)" % (meta['audible_id']))
+            logging.info("Title:    %s" % (meta['title']))
+            logging.info("Author:   %s" % (meta['author']))
+            logging.info("Narrator: %s" % (meta['narrator']))
+            logging.info("Series:   %s" % (meta['series']))
+            logging.info("Book Num: %s" % (meta['book_num']))
+            logging.info("")
 
             # Setup aax file name
             files = self.__search_for_book_file(self.unprocessed_path, meta['audible_id'], 'aax')
@@ -518,7 +537,7 @@ if __name__ == "__main__":
         parser.add_option("--headless",
                         action="store",
                         dest="headless",
-                        default="True", # Use a string here since we are going to convert it anyway
+                        default=True,
                         help="Run in headless mode (optional)",)
         (options, args) = parser.parse_args()
 
