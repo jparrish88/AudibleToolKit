@@ -445,19 +445,24 @@ class aud_downloader:
                 if int(meta['encrypted_file_size']) > 0:
                     logging.warning("File size not correct, expected "+str(meta['encrypted_file_size'])+", found "+str(remote_file_size))
 
-                logging.info("Downloading file")
-                tmp_file = wget.download(url)
-                logging.info("\nDownloaded file: "+tmp_file)
+                local_file_size = 0
+                try:
+                    logging.info("Downloading file")
+                    tmp_file = wget.download(url)
+                    logging.info("\nDownloaded file: "+tmp_file)
+
+                    _, file_extension = os.path.splitext(tmp_file)
+                    meta['encrypted_file_name'] = item_file_id+file_extension
+
+                    local_file_size = os.path.getsize(tmp_file)
+
+                    logging.info('remote_file_size: '+str(remote_file_size))
+                    logging.info('local_file_size: '+str(local_file_size))
+
+                except urllib.error.ContentTooShortError:
+                    logging.warning("Downloading file '"+tmp_file+"' has failed, skipping book")
 
                 #rename file and move to unprocssed folder
-                _, file_extension = os.path.splitext(tmp_file)
-                meta['encrypted_file_name'] = item_file_id+file_extension
-
-                local_file_size = os.path.getsize(tmp_file)
-
-                logging.info('remote_file_size: '+str(remote_file_size))
-                logging.info('local_file_size: '+str(local_file_size))
-
                 if int(remote_file_size) == int(local_file_size):
                     full_file_path = os.path.join(self.unprocessed_path, meta['encrypted_file_name'])
                     shutil.move(tmp_file, full_file_path)
