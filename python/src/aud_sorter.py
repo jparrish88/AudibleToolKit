@@ -60,6 +60,28 @@ class aud_sorter:
             logging.error("directory " + path + " not writable")
             sys.exit(1)
 
+    def __valid_filepath(self, path):
+        #path = path.replace("&", "and")
+        path = path.replace(":", "-")
+
+        # Replace these chars
+        # /, :, *, ?, ", <, >, |
+        chars = '\:*?"<>|'
+        path = re.sub('['+chars+']', '', path)
+
+        return path
+
+    def __clean_string(self, s):
+        s = s.replace("/", " ")
+        s = s.replace("®", "")
+        s = s.strip()
+
+        return s
+
+    def __isascii(self, s):
+        """Check if the characters in string s are in ASCII, U+0-U+7F."""
+        return len(s) == len(s.encode())
+
     # Decrypt all the audio books
     def run(self, **kwargs):
         logging.info("Starting sorter")
@@ -74,6 +96,8 @@ class aud_sorter:
                 except ValueError:  # includes simplejson.decoder.JSONDecodeError
                     logging.warning("Decoding JSON file '"+item_metadata_file+"' has failed")
                     continue
+
+                count = count + 1
 
                 #logging.debug(meta)
                 # Check for needed meta data
@@ -112,14 +136,22 @@ class aud_sorter:
 
                 #print(source_file)
 
-                author = meta['author']
+                author = self.__clean_string(meta['author'])
                 author = author.replace("- editor", "")
+                author = author.replace("- translator", "")
                 author = author.strip()
+
+                series_name = ""
+
+                title = self.__clean_string(meta['title'])
+
+                # Remove A Novel from the end
+                title = title.removesuffix(': A Novel')
+                #re.sub('%s$' % ": A Novel", "", title)
+
 
                 # Check if book is in a series
                 if meta['book_num'] == -1:
-                    title = meta['title']
-
                     dest_name = os.path.join(
                         self.media_path,
                         author,
@@ -127,9 +159,9 @@ class aud_sorter:
                         meta['decrypted_file_name']
                         )
                 else:
-                    series_name = meta['series']
+                    series_name = self.__clean_string(meta['series'])
                     series_name = series_name.replace("(Unabridged)", "")
-                    series_name = re.sub('^%s' % "The", "", series_name)
+                    series_name = series_name.removeprefix("The ").strip()
                     series_name = series_name.strip()
 
                     if not series_name.lower().endswith("trilogy") and \
@@ -137,17 +169,19 @@ class aud_sorter:
                         not series_name.lower().endswith("series"):
                         series_name = series_name+" Series"
 
-                    book_num = meta['book_num']
-                    #book_num = book_num.split(',')[0]
+                    book_num = self.__clean_string(meta['book_num'])
+
                     if len(book_num) == 1:
                         book_num = '0'+book_num
 
-                    title = meta['title']
-                    #title = ("Book {:02f} - "+meta['title']).format(float(meta['book_num']))
+                    # Remove series from title
+                    base_series = meta['series'].strip()
+                    title = title.removesuffix(": "+base_series)
+                    title = title.removesuffix(": The "+base_series)
+                    title = title.removesuffix(": "+base_series.removeprefix("The ").strip())
 
-                    if len(book_num) > 3:
-                        count = count + 1
-                        #print(book_num+"      "+item_metadata_file)
+                    # Add book number to title
+                    title = ("Book {0} - "+title).format(book_num)
 
                     dest_name = os.path.join(
                         self.media_path,
@@ -157,8 +191,12 @@ class aud_sorter:
                         meta['decrypted_file_name']
                         )
 
-                    #print(dest_name)
-        print(count)
+                # print("author: "+author)
+                # print("series: "+series_name)
+                # print("title:  "+title)
+                # print(self.__valid_filepath(dest_name))
+                # print("")
+        print("Total Book Count: "+str(count))
 
     def __save_metadata(self, full_file_path, meta):
         full_metadata_path = os.path.abspath(full_file_path)

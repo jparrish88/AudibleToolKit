@@ -460,7 +460,8 @@ class aud_downloader:
                     logging.info('local_file_size: '+str(local_file_size))
 
                 except urllib.error.ContentTooShortError:
-                    logging.warning("Downloading file '"+tmp_file+"' has failed, skipping book")
+                    print("\n")
+                    logging.warning("Downloading file '"+url+"' has failed, skipping book")
 
                 #rename file and move to unprocssed folder
                 if int(remote_file_size) == int(local_file_size):
