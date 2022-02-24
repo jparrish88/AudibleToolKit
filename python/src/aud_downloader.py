@@ -12,6 +12,7 @@ import wget
 import requests
 import shutil
 import json
+import tempfile
 import selenium
 #from seleniumwire import webdriver
 import chromedriver_autoinstaller
@@ -54,6 +55,7 @@ class aud_downloader:
     password = ""
 
     driver = None
+    rsession = None
     books_downloaded = 0
     max_pages = 0
     unprocessed_path = ''
@@ -110,6 +112,8 @@ class aud_downloader:
         if self.lang != "us" and self.base_url.endswith(".com"):
             self.base_url = self.base_url.replace('.com', "." + self.lang)
 
+        self.rsession = requests.Session()
+
     def __create_dir(self, path):
         if not os.path.exists(path):
             logging.warning("directory doesn't exist, creating " + path)
@@ -145,21 +149,16 @@ class aud_downloader:
 
         chrome_options = webdriver.ChromeOptions()
 
-        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko")
+        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36")
 
         if self.headless:
             logging.info("Configuring headless mode")
-            chrome_options.add_argument("no-sandbox")
-            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('headless')
+            chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--window-size=800,600")
+            chrome_options.add_argument("--window-size=1024,768")
             chrome_options.add_argument("--disable-dev-shm-usage")
 
-        # This user agent will give us files w. download info
-        # This is the old user agent, we are not getting metadata files anymore
-        #chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko")
-
-        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.90 Safari/537.36")
         chromePrefs = {
             "profile.default_content_settings.popups": "0",
             "download.default_directory": self.unprocessed_path,
@@ -433,8 +432,11 @@ class aud_downloader:
                 meta['encrypted_file_size'] = os.path.getsize(local_file)
 
             # Check "Content-Length" of file
-            response = requests.head(url, allow_redirects=True)
+            self.__sync_cookies()
+            response = self.rsession.head(url, allow_redirects=True)
             remote_file_size = response.headers.get('content-length', 0)
+
+            logging.info('remote_file_size: '+str(remote_file_size))
 
             if meta['encrypted_file_size'] and int(meta['encrypted_file_size']) == int(remote_file_size):
                 logging.info("Book already download and same size, skipping downloading")
@@ -446,9 +448,13 @@ class aud_downloader:
                     logging.warning("File size not correct, expected "+str(meta['encrypted_file_size'])+", found "+str(remote_file_size))
 
                 local_file_size = 0
+                tmp_file = "audfile_"+next(tempfile._get_candidate_names())+".aax"
                 try:
                     logging.info("Downloading file")
-                    tmp_file = wget.download(url)
+
+                    self.__sync_cookies()
+                    tmp_file = self.__download_with_status(url, filename=tmp_file)
+
                     logging.info("\nDownloaded file: "+tmp_file)
 
                     _, file_extension = os.path.splitext(tmp_file)
@@ -461,10 +467,16 @@ class aud_downloader:
 
                 except urllib.error.ContentTooShortError:
                     print("\n")
-                    logging.warning("Downloading file '"+url+"' has failed, skipping book")
+                    logging.warning("Downloading file has failed (ContentTooShortError), skipping book")
+                except urllib.error.HTTPError as err:
+                    print("\n")
+                    logging.error(err)
+                except Exception as err:
+                    logging.error(err)
+                    logging.error(url)
 
                 #rename file and move to unprocssed folder
-                if int(remote_file_size) == int(local_file_size):
+                if int(local_file_size) > 0 and int(remote_file_size) == int(local_file_size):
                     full_file_path = os.path.join(self.unprocessed_path, meta['encrypted_file_name'])
                     shutil.move(tmp_file, full_file_path)
                     meta['encrypted_file_size'] = int(remote_file_size)
@@ -474,8 +486,53 @@ class aud_downloader:
                     self.books_downloaded = self.books_downloaded + 1
                     logging.info("Download verified")
 
+                # Clean up tmp file
+                if os.path.exists(tmp_file):
+                    os.remove(tmp_file)
+
             # Save metadata file
             self.__save_metadata(item_metadata_file, meta)
+
+    def __sync_cookies(self):
+        request_cookies_browser = self.driver.get_cookies()
+        c = [self.rsession.cookies.set(c['name'], c['value']) for c in request_cookies_browser]
+
+        # resp = s.post(url, params) #I get a 200 status_code
+
+        # #passing the cookie of the response to the browser
+        # dict_resp_cookies = resp.cookies.get_dict()
+        # response_cookies_browser = [{'name':name, 'value':value} for name, value in dict_resp_cookies.items()]
+        # c = [driver.add_cookie(c) for c in response_cookies_browser]
+
+    def __download_file(self, url, filename):
+        with self.rsession.get(url, stream=True) as dl:
+            dl.raise_for_status()
+            with open(filename, 'wb') as f:
+                shutil.copyfileobj(dl.raw, f)
+
+        return filename
+
+    def __download_with_status(self, url, filename):
+        import functools
+        import pathlib
+        from tqdm.auto import tqdm
+
+        r = self.rsession.get(url, stream=True, allow_redirects=True)
+        if r.status_code != 200:
+            r.raise_for_status()  # Will only raise for 4xx codes, so...
+            raise RuntimeError(f"Request to {url} returned status code {r.status_code}")
+        file_size = int(r.headers.get('Content-Length', 0))
+
+        path = pathlib.Path(filename).expanduser().resolve()
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        desc = "(Unknown total file size)" if file_size == 0 else ""
+        r.raw.read = functools.partial(r.raw.read, decode_content=True)  # Decompress if needed
+        with tqdm.wrapattr(r.raw, "read", total=file_size, desc=desc, ncols=100) as r_raw:
+            with path.open("wb") as f:
+                shutil.copyfileobj(r_raw, f)
+
+        return str(path)
 
     def __save_metadata(self, full_file_path, meta):
         full_metadata_path = os.path.abspath(full_file_path)
