@@ -61,3 +61,6 @@ config/
 bin
 log
 activation.blob
+
+# Remote config symlink
+docker-config

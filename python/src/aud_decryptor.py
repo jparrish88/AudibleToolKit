@@ -6,10 +6,12 @@ import glob
 import json
 
 from optparse import OptionParser
+from pathlib import Path
 
 class aud_decryptor:
     debug = False
     data_path = ''
+    one_file = ''
 
     unprocessed_path = ''
     metadata_path = ''
@@ -19,6 +21,8 @@ class aud_decryptor:
             self.debug = kwargs['debug']
         if 'data_path' in kwargs.keys():
             self.data_path = kwargs['data_path']
+        if 'one_file' in kwargs.keys():
+            self.one_file = kwargs['one_file']
 
         if os.getenv("DEBUG"):
             self.debug = True
@@ -62,7 +66,13 @@ class aud_decryptor:
 
         ffmpeg_path = "ffmpeg"
 
-        for item_metadata_file in glob.glob(os.path.join(self.metadata_path, '*.json')):
+        my_file = Path(self.one_file)
+        if my_file.is_file():
+            file_list = [self.one_file]
+        else:
+            file_list = glob.glob(os.path.join(self.metadata_path, '*.json'))
+
+        for item_metadata_file in file_list:
             logging.info(item_metadata_file)
             with open(item_metadata_file, "r") as f:
                 try:
@@ -137,8 +147,6 @@ class aud_decryptor:
 
                             logging.info('Book verified decrypted')
 
-
-
                 except ValueError:  # includes simplejson.decoder.JSONDecodeError
                     logging.warning("Decoding JSON file '"+item_metadata_file+"' has failed")
 
@@ -168,6 +176,11 @@ if __name__ == "__main__":
                         dest="log_path",
                         default="/mnt/media/downloads/audibletoolkit/logs",
                         help="log directory",)
+        parser.add_option("--one-file",
+                        action="store",
+                        dest="one_file",
+                        default="",
+                        help="",)
         (options, args) = parser.parse_args()
 
         dt = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
@@ -177,6 +190,8 @@ if __name__ == "__main__":
 
         data_path = options.data_path
         log_path = options.log_path
+
+        one_file = options.one_file
 
         # Make log dir if needed
         if not os.path.exists(log_path):
@@ -195,6 +210,7 @@ if __name__ == "__main__":
 
         dc = aud_decryptor(
             data_path = data_path,
+            one_file = one_file,
         )
         dc.run()
 

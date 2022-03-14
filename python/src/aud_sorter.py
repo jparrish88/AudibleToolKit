@@ -191,11 +191,11 @@ class aud_sorter:
                         meta['decrypted_file_name']
                         )
 
-                print("author: "+author)
-                print("series: "+series_name)
-                print("title:  "+title)
-                print(self.__valid_filepath(dest_name))
-                print("")
+                # print("author: "+author)
+                # print("series: "+series_name)
+                # print("title:  "+title)
+                # print(self.__valid_filepath(dest_name))
+                # print("")
         print("Total Book Count: "+str(count))
 
     def __save_metadata(self, full_file_path, meta):
