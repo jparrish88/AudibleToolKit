@@ -47,6 +47,11 @@ Thumbs.db
 # Docker Files
 docker-compose.override.yml
 
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
 # Project files
 chromedriver
 chromedriver.exe

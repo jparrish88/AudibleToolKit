@@ -1,4 +1,4 @@
-FROM python:3
+FROM python:3.10
 
 # Basic Setup, update system and install basic tools
 ENV DEBIAN_FRONTEND=noninteractive
