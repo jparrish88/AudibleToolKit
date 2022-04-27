@@ -132,7 +132,7 @@ class aud_sorter:
                 continue
 
             if meta.get('complete'):
-                logging.info('complete flag set, skipping...')
+                logging.debug('complete flag set, skipping...')
                 logging.debug(metadata_file)
                 continue
 
@@ -158,9 +158,14 @@ class aud_sorter:
             title = self.__ireplace(title, "\(Adapted\)", "")
             title = self.__ireplace(title, "\(Abridged\)", "")
             title = self.__ireplace(title, "\(Unabridged\)", "")
+            title = self.__ireplace(title, "\(Dramatised\)", "")
+            title = self.__ireplace(title, "\(Dramatized\)", "")
+            title = self.__ireplace(title, "\(A Full Cast Production\)", "")
             title = self.__iremovesuffix(title, ": An Audible Original Drama")
             title = self.__iremovesuffix(title, ": An Audible Original")
+            title = self.__iremovesuffix(title, ": Full-Cast Production")
             title = self.__iremovesuffix(title, ": A Sci-Fi LitRPG")
+            title = self.__iremovesuffix(title, ": A Memoir")
             title = title.strip()
 
             # Remove A Novel from the end
@@ -182,6 +187,7 @@ class aud_sorter:
                     )
                 else:
                     series_name = self.__clean_string(meta.get('series'))
+                    series_name = self.__ireplace(series_name, ": ", " - ")
                     series_name = self.__ireplace(series_name, "\(Adapted\)", "")
                     series_name = self.__ireplace(series_name, "\(Abridged\)", "")
                     series_name = self.__ireplace(series_name, "\(Unabridged\)", "")
@@ -189,7 +195,9 @@ class aud_sorter:
                     series_name = self.__iremoveprefix(series_name, "The ")
                     series_name = series_name.strip()
 
-                    if not series_name.lower().endswith("trilogy") and \
+                    if not series_name.lower().endswith("sequence") and \
+                        not series_name.lower().endswith("chronicles") and \
+                        not series_name.lower().endswith("trilogy") and \
                         not series_name.lower().endswith("novels") and \
                         not series_name.lower().endswith("series"):
                         series_name = series_name+" Series"
@@ -212,17 +220,27 @@ class aud_sorter:
                     base_series = base_series.strip()
 
                     # Remove the series name from title
+                    title = self.__iremovesuffix(title, ": "+series_name) # Check for the series name with out "The"
                     title = self.__iremovesuffix(title, ": "+base_series)
                     title = self.__iremovesuffix(title, ": The "+base_series)
                     title = self.__iremovesuffix(title, ": "+base_series.removeprefix("The ").strip())
                     title = self.__iremovesuffix(title, ": "+base_series+" Series")
                     title = self.__iremovesuffix(title, ": A "+base_series+" Novel")
+                    title = self.__iremovesuffix(title, ": A Novel of "+base_series)
                     title = self.__iremovesuffix(title, ": An "+base_series+" Novel")
+                    title = self.__iremovesuffix(title, ": A "+base_series+" Novella")
+                    title = self.__iremovesuffix(title, ": A "+base_series+" Story")
+                    title = self.__iremovesuffix(title, ": "+base_series+" Trilogy")
                     title = self.__iremovesuffix(title, ": The "+base_series+" Trilogy")
                     title = self.__iremovesuffix(title, ": "+base_series+": The Complete Stories")
                     title = self.__iremovesuffix(title, ": Book (.*) of "+base_series)
                     title = self.__iremovesuffix(title, ": Book (.*) of The "+base_series)
                     title = self.__iremovesuffix(title, ": "+base_series+": Book (.*)")
+                    title = self.__iremovesuffix(title, ": An "+base_series+" Mystery")
+                    title = self.__iremovesuffix(title, ": Book (.*) in "+base_series+" Trilogy")
+                    title = self.__iremovesuffix(title, ": Book (.*) of the "+base_series+" Trilogy")
+                    title = self.__iremovesuffix(title, ": Book (.*) in The "+base_series+" Series")
+                    title = self.__iremovesuffix(title, ": The (.*) Novel of "+base_series)
 
                     # Add book number to title
                     if meta.get('book_num') and str(meta.get('book_num')) != "-1":
