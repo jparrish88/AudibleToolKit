@@ -62,6 +62,7 @@ config/
 
 # Audible Files
 *.aax
+*.m4b
 
 bin
 log

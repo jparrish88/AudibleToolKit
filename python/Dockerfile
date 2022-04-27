@@ -27,14 +27,6 @@ RUN curl -sSL https://dl.google.com/linux/linux_signing_key.pub | apt-key add - 
     mkdir -p /root/Downloads && \
     usermod -a -G chrome,audio,video root
 
-    # groupadd -r chrome && \
-    # useradd -r -g chrome -G audio,video chrome && \
-    # mkdir -p /home/chrome/Downloads && \
-    # chown -R chrome:chrome /home/chrome
-
-# Run Chrome as non privileged user
-#USER chrome
-
 WORKDIR /app
 COPY ./src/ /app
 
