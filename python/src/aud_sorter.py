@@ -227,17 +227,17 @@ class aud_sorter:
                     logging.warning("series_name:  "+series_name)
                     meta.set('path_check', False)
 
-                try:
-                    # Check for weird file paths
-                    file_name = os.path.basename(meta.get('save_path'))
-                    file_path = os.path.dirname(meta.get('save_path'))
+            # Check for weird file paths
+            try:
+                file_name = os.path.basename(meta.get('save_path'))
+                file_path = os.path.dirname(meta.get('save_path'))
 
-                    pathval.validate_filename(platform = "windows", filename = file_name)
-                    pathval.validate_filepath(platform = "windows", file_path = file_path)
-                except pathval.ValidationError as e:
-                    logging.warning('Invalid chars in safe path')
-                    logging.debug(e)
-                    meta.set('path_check', False)
+                pathval.validate_filename(platform = "windows", filename = file_name)
+                pathval.validate_filepath(platform = "windows", file_path = file_path)
+            except pathval.ValidationError as e:
+                logging.warning('Invalid chars in safe path')
+                logging.debug(e)
+                meta.set('path_check', False)
 
             if not meta.get('path_check'):
                 logging.warning("path check failed, skipping... "+metadata_file)

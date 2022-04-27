@@ -75,17 +75,17 @@ class aud_decryptor:
             file_list = glob.glob(os.path.join(self.metadata_path, '*.json'))
 
         for metadata_file in file_list:
-            logging.info(metadata_file)
+            logging.debug(metadata_file)
 
             meta = aud_metadata(filename = metadata_file)
 
             if not meta.get('encrypted_verified'):
-                logging.warning('verified is not true, skipping...')
+                logging.warning('verified is not true, skipping... '+metadata_file)
                 continue
 
             # File already decrypted and exists, skipping
             if meta.get('decrypted'):
-                logging.info('Book already decrypted, skipping...')
+                logging.debug('Book already decrypted, skipping...')
                 continue
 
             # Check if source file exists
