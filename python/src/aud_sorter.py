@@ -5,9 +5,13 @@ import logging
 import glob
 import json
 import re
+import shutil
+from pathlib import Path
 
-import aud_metadata
+from aud_metadata import aud_metadata
 
+import pathvalidate as pathval
+#from pathvalidate import ValidationError, validate_filename, sanitize_filepath, sanitize_filename
 from optparse import OptionParser
 from pathlib import Path
 
@@ -100,196 +104,181 @@ class aud_sorter:
         else:
             file_list = glob.glob(os.path.join(self.metadata_path, '*.json'))
 
-        for item_metadata_file in file_list:
-            #logging.info(item_metadata_file)
-            with open(item_metadata_file, "r") as f:
-                try:
-                    meta = json.load(f)
-                except ValueError:  # includes simplejson.decoder.JSONDecodeError
-                    logging.warning("Decoding JSON file '"+item_metadata_file+"' has failed")
-                    continue
+        for metadata_file in file_list:
+            meta = aud_metadata(filename = metadata_file)
 
-                count = count + 1
+            count = count + 1
 
-                #logging.debug(meta)
-                # Check for needed meta data
-                meta_data_error = False
-                if not 'verified' in meta:
-                    meta_data_error = True
-                    logging.error('verified value missing '+item_metadata_file)
-                    continue
+            # Check for correct metadata status
+            if not meta.get('encrypted_verified'):
+                logging.warning('verified is not true, skipping...')
+                logging.debug(metadata_file)
+                continue
+
+            # File not decrypted, skipping
+            if not meta.get('decrypted'):
+                logging.info('Book not decrypted, skipping...')
+                logging.debug(metadata_file)
+                continue
+
+            if meta.get('complete'):
+                logging.info('complete flag set, skipping...')
+                logging.debug(metadata_file)
+                continue
+
+            # Ignore path check if override is set
+            if meta.get('path_override'):
+                meta.set('path_check', True)
+
+            # Check if decrypted file exists
+            source_file = os.path.join(self.processed_path, meta.get('decrypted_file_name'))
+            if not os.path.isfile(source_file):
+                logging.error('decrypted file is missing, skipping...')
+                logging.debug(metadata_file)
+                continue
+
+            author = self.__clean_string(meta.get('author'))
+            author = author.replace("- editor", "")
+            author = author.replace("- translator", "")
+            author = author.strip()
+
+            series_name = ""
+
+            title = self.__clean_string(meta.get('title'))
+
+            # Remove A Novel from the end
+            title = title.removesuffix(': A Novel')
+            #re.sub('%s$' % ": A Novel", "", title)
+
+            logging.info('Processing "'+title+'" by "'+author+'"')
+
+            # Generate save path
+            if not meta.get('path_override'):
+
+                # Check if book is in a series
+                if meta.get('book_num') == -1:
+                    meta.set('save_path', os.path.join(
+                        self.media_path,
+                        author,
+                        title,
+                        meta.get('decrypted_file_name')
+                        )
+                    )
                 else:
-                    if meta['verified'] != True:
-                        logging.warning('verified is not true, skipping '+item_metadata_file)
-                        continue
+                    series_name = self.__clean_string(meta.get('series'))
+                    series_name = series_name.replace("(Unabridged)", "")
+                    series_name = series_name.removeprefix("The ").strip()
+                    series_name = series_name.strip()
 
-                if not 'decrypted' in meta:
-                    meta_data_error = True
-                    logging.error('decrypted value missing')
+                    if not series_name.lower().endswith("trilogy") and \
+                        not series_name.lower().endswith("novels") and \
+                        not series_name.lower().endswith("series"):
+                        series_name = series_name+" Series"
 
-                if meta_data_error:
-                    logging.debug(meta)
+                    book_num = self.__clean_string(meta.get('book_num'))
 
-                    # Delete invalid json file
-                    logging.warning('invalid json file')
-                    f.close()
-                    continue
+                    if len(book_num) == 1:
+                        book_num = '0'+book_num
 
-                # File not decrypted, skipping
-                if meta['decrypted'] == False:
-                    logging.info('Book not decrypted, skipping... '+item_metadata_file)
-                    continue
+                    # Remove series from title
+                    base_series = meta.get('series').strip()
+                    title = title.removesuffix(": "+base_series)
+                    title = title.removesuffix(": The "+base_series)
+                    title = title.removesuffix(": "+base_series.removeprefix("The ").strip())
 
-                if not 'save_path' in meta:
-                    meta['save_path'] = ""
+                    # Add book number to title
+                    title = ("Book {0} - "+title).format(book_num)
 
-                if not 'path_check' in meta:
-                    meta['path_check'] = False
-                # else:
-                #     if meta['path_check']:
-                #         logging.info('path_check set, skipping... '+item_metadata_file)
-                #         continue
+                    meta.set('save_path', os.path.join(
+                        self.media_path,
+                        author,
+                        series_name,
+                        title,
+                        meta.get('decrypted_file_name')
+                        )
+                    )
 
-                if not 'path_override' in meta:
-                    meta['path_override'] = False
-                else:
-                    # Ignore path check if override is set
-                    if meta['path_override']:
-                        meta['path_check'] = True
-
-                if not 'complete' in meta:
-                    meta['complete'] = False
-                else:
-                    if meta['complete']:
-                        logging.info('complete flag set, skipping... '+item_metadata_file)
-                        continue
-
-                # Check if decrypted file exists
-                source_file = os.path.join(self.processed_path, meta['decrypted_file_name'])
-                if not os.path.isfile(source_file):
-                    logging.error('decrypted file is missing, skipping... '+item_metadata_file)
-                    continue
-
-                author = self.__clean_string(meta['author'])
-                author = author.replace("- editor", "")
-                author = author.replace("- translator", "")
-                author = author.strip()
-
-                series_name = ""
-
-                title = self.__clean_string(meta['title'])
-
-                # Remove A Novel from the end
-                title = title.removesuffix(': A Novel')
-                #re.sub('%s$' % ": A Novel", "", title)
-
-                if meta['path_check'] == False and meta['path_override'] == False:
-                    # Check if book is in a series
-                    if meta['book_num'] == -1:
-                        meta['save_path'] = os.path.join(
-                            self.media_path,
-                            author,
-                            title,
-                            meta['decrypted_file_name']
-                            )
-                    else:
-                        series_name = self.__clean_string(meta['series'])
-                        series_name = series_name.replace("(Unabridged)", "")
-                        series_name = series_name.removeprefix("The ").strip()
-                        series_name = series_name.strip()
-
-                        if not series_name.lower().endswith("trilogy") and \
-                            not series_name.lower().endswith("novels") and \
-                            not series_name.lower().endswith("series"):
-                            series_name = series_name+" Series"
-
-                        book_num = self.__clean_string(meta['book_num'])
-
-                        if len(book_num) == 1:
-                            book_num = '0'+book_num
-
-                        # Remove series from title
-                        base_series = meta['series'].strip()
-                        title = title.removesuffix(": "+base_series)
-                        title = title.removesuffix(": The "+base_series)
-                        title = title.removesuffix(": "+base_series.removeprefix("The ").strip())
-
-                        # Add book number to title
-                        title = ("Book {0} - "+title).format(book_num)
-
-                        meta['save_path'] = os.path.join(
-                            self.media_path,
-                            author,
-                            series_name,
-                            title,
-                            meta['decrypted_file_name']
-                            )
-
-                    meta['path_check'] = True
-
-                # print("author: "+author)
-                # print("series: "+series_name)
-                # print("title:  "+title)
-                # print(self.__valid_filepath(dest_name))
-                # print("")
+                meta.set('path_check', True)
 
                 # Check if the file path is clean
-                if meta['path_override'] == False:
-                    matches = [
-                        "novel",
-                        "novella",
-                        "series",
-                        "trilogy",
-                        "unabridged",
-                        "editor",
-                        "translator",
-                    ]
-                    if any(x in title.lower() for x in matches):
-                        print("title:  "+title)
-                        meta['path_check'] = False
+                matches = [
+                    "novel",
+                    "novella",
+                    "series",
+                    "trilogy",
+                    "unabridged",
+                    "editor",
+                    "translator",
+                ]
+                if any(x in title.lower() for x in matches):
+                    logging.warning("title:  "+title)
+                    meta.set('path_check', False)
 
-                    if any(x in author.lower() for x in matches):
-                        print("author:  "+author)
-                        meta['path_check'] = False
+                if any(x in author.lower() for x in matches):
+                    logging.warning("author:  "+author)
+                    meta.set('path_check', False)
 
-                    matches = [
-                        "unabridged",
-                        "editor",
-                        "translator",
-                    ]
-                    if any(x in series_name.lower() for x in matches):
-                        print("series_name:  "+series_name)
-                        meta['path_check'] = False
+                matches = [
+                    "unabridged",
+                    "editor",
+                    "translator",
+                ]
+                if any(x in series_name.lower() for x in matches):
+                    logging.warning("series_name:  "+series_name)
+                    meta.set('path_check', False)
 
+                try:
+                    # Check for weird file paths
+                    file_name = os.path.basename(meta.get('save_path'))
+                    file_path = os.path.dirname(meta.get('save_path'))
 
-                if meta['path_check'] == False:
-                    print("path check failed, skipping... "+item_metadata_file)
+                    pathval.validate_filename(platform = "windows", filename = file_name)
+                    pathval.validate_filepath(platform = "windows", file_path = file_path)
+                except pathval.ValidationError as e:
+                    logging.warning('Invalid chars in safe path')
+                    logging.debug(e)
+                    meta.set('path_check', False)
 
-                # Check if file already exists
-                if os.path.isfile(meta['save_path']):
-                    if os.path.getsize(source_file) == os.path.getsize(meta['save_path']):
-                        logging.info('file already exists, skipping... '+item_metadata_file)
-                        meta['complete'] = True
-                    else:
-                        logging.info('bad save file found, deleting... '+item_metadata_file)
-                        od.path.delete(meta['save_path'])
-
-                #copy file to path
-                #logging.debug('path_check set, copying to '+meta['save_path'])
-                #shutil.copyfile(source_file, meta['save_path'])
-
-                # Save meta data
-                self.__save_metadata(item_metadata_file, meta)
+            if not meta.get('path_check'):
+                logging.warning("path check failed, skipping... "+metadata_file)
+                meta.save(metadata_file)
+                continue
 
 
-        print("Total Book Count: "+str(count))
+            # Check if file already exists
+            if os.path.isfile(meta.get('save_path')):
+                if os.path.getsize(source_file) != os.path.getsize(meta.get('save_path')):
+                    logging.info('bad final audio file found, deleting...')
+                    logging.debug('metadata_file: '+metadata_file)
+                    logging.debug('save_path:     '+meta.get('save_path'))
+                    os.remove(meta.get('save_path'))
+                else:
+                    logging.info('valid file already exists, skipping...')
+                    continue
 
-    def __save_metadata(self, full_file_path, meta):
-        full_metadata_path = os.path.abspath(full_file_path)
+            #copy file to path
+            logging.info('Starting copy of "'+meta.get('title')+'"')
 
-        with open(full_metadata_path, "w") as f:
-            json.dump(meta, f, indent=4, sort_keys=True)
-            logging.info('writing metadata')
+            folder_path = os.path.dirname(meta.get('save_path'))
+            Path(folder_path).mkdir(parents=True, exist_ok=True)
+
+            shutil.copyfile(source_file, meta.get('save_path'))
+
+            logging.info('copy complete')
+
+            # Confim file is correct size
+            if os.path.getsize(source_file) == os.path.getsize(meta.get('save_path')):
+                logging.info('audio file copied successfully')
+                meta.set('complete', True)
+            else:
+                logging.info('bad save file found, deleting... '+metadata_file)
+                os.remove(meta.get('save_path'))
+
+            # Save meta data
+            meta.save(metadata_file)
+            logging.info("")
+
+        logging.info("Total Book Count: "+str(count))
 
 
 if __name__ == "__main__":
@@ -308,7 +297,7 @@ if __name__ == "__main__":
         parser.add_option("--media-path",
                         action="store",
                         dest="media_path",
-                        default="/mnt/media/audiobooks",
+                        default="/mnt/media/books/audiobooks",
                         help="data directory",)
         parser.add_option("--log-path",
                         action="store",

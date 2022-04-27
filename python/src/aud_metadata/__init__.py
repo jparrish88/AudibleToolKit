@@ -1,19 +1,19 @@
-
-
+import os
+import json
+import logging
 
 class aud_metadata:
-    logging = {}
     meta = {
         'audible_id':          '',
-        'verified':            False,
-        'decrypted':           False,
         'title':               '',
         'author':              '',
         'narrator':            '',
         'series':              '',
         'book_num':            -1,
+        'encrypted_verified':  False,
         'encrypted_file_name': '',
         'encrypted_file_size': 0,
+        'decrypted':           False,
         'decrypted_file_name': '',
         'decrypted_file_size': 0,
         'activation_bytes':    '', # Activation bytes from audible
@@ -38,9 +38,15 @@ class aud_metadata:
                 logging.error("Decoding metadata file '"+filename+"' has failed")
                 return False
 
-        # Fix formatting of saved_meta
+        # Fix formatting of saved_meta from old versions
         try:
-            saved_meta['encrypted_file_size'] = int(metadata_save['encrypted_file_size'])
+            saved_meta['encrypted_file_size'] = int(saved_meta['encrypted_file_size'])
+        except KeyError:
+            pass
+
+        try:
+            saved_meta['encrypted_verified'] = saved_meta['verified']
+            saved_meta.pop('verified')
         except KeyError:
             pass
 
@@ -56,16 +62,16 @@ class aud_metadata:
 
         with open(filepath, "w") as f:
             json.dump(self.meta, f, indent=4, sort_keys=True)
-            logging.info('writing metadata')
+            logging.debug('writing metadata')
 
     def get(self, item):
         return self.meta[item]
 
-    def put(self, item, value):
+    def set(self, item, value):
         self.meta[item] = value
 
-    def logout(self, item):
+    def log_data(self):
         logging.info("")
         for key in self.meta:
-            logging.info(key, '->', self.meta[key])
+            logging.info("%s -> %s" % (key.ljust(20), str(self.meta[key])))
         logging.info("")
