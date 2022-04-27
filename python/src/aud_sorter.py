@@ -82,11 +82,21 @@ class aud_sorter:
         return path
 
     def __clean_string(self, s):
+        s = str(s)
         s = s.replace("/", " ")
         s = s.replace("®", "")
         s = s.strip()
 
         return s
+
+    def __iremoveprefix(self, haystack, needle):
+        return re.sub('^'+needle, '', haystack, flags=re.I)
+
+    def __iremovesuffix(self, haystack, needle):
+        return re.sub(needle+'$', '', haystack, flags=re.I)
+
+    def __ireplace(self, haystack, needle, replace):
+        return re.sub(needle, replace, haystack, flags=re.I)
 
     def __isascii(self, s):
         """Check if the characters in string s are in ASCII, U+0-U+7F."""
@@ -145,10 +155,16 @@ class aud_sorter:
             series_name = ""
 
             title = self.__clean_string(meta.get('title'))
+            title = self.__ireplace(title, "\(Adapted\)", "")
+            title = self.__ireplace(title, "\(Abridged\)", "")
+            title = self.__ireplace(title, "\(Unabridged\)", "")
+            title = self.__iremovesuffix(title, ": An Audible Original Drama")
+            title = self.__iremovesuffix(title, ": An Audible Original")
+            title = self.__iremovesuffix(title, ": A Sci-Fi LitRPG")
+            title = title.strip()
 
             # Remove A Novel from the end
-            title = title.removesuffix(': A Novel')
-            #re.sub('%s$' % ": A Novel", "", title)
+            title = self.__iremovesuffix(title, ': A Novel')
 
             logging.info('Processing "'+title+'" by "'+author+'"')
 
@@ -156,7 +172,7 @@ class aud_sorter:
             if not meta.get('path_override'):
 
                 # Check if book is in a series
-                if meta.get('book_num') == -1:
+                if meta.get('book_num') == -1 and not meta.get('series'):
                     meta.set('save_path', os.path.join(
                         self.media_path,
                         author,
@@ -166,8 +182,11 @@ class aud_sorter:
                     )
                 else:
                     series_name = self.__clean_string(meta.get('series'))
-                    series_name = series_name.replace("(Unabridged)", "")
-                    series_name = series_name.removeprefix("The ").strip()
+                    series_name = self.__ireplace(series_name, "\(Adapted\)", "")
+                    series_name = self.__ireplace(series_name, "\(Abridged\)", "")
+                    series_name = self.__ireplace(series_name, "\(Unabridged\)", "")
+                    series_name = self.__ireplace(series_name, "\(Author's Preferred Order\)", "")
+                    series_name = self.__iremoveprefix(series_name, "The ")
                     series_name = series_name.strip()
 
                     if not series_name.lower().endswith("trilogy") and \
@@ -175,19 +194,44 @@ class aud_sorter:
                         not series_name.lower().endswith("series"):
                         series_name = series_name+" Series"
 
-                    book_num = self.__clean_string(meta.get('book_num'))
+                    if meta.get('book_num') and meta.get('book_num') != "-1":
+                        book_num = self.__clean_string(meta.get('book_num'))
 
-                    if len(book_num) == 1:
-                        book_num = '0'+book_num
+                        if len(book_num) == 1:
+                            book_num = '0'+book_num
 
-                    # Remove series from title
+                    # Get base series
                     base_series = meta.get('series').strip()
-                    title = title.removesuffix(": "+base_series)
-                    title = title.removesuffix(": The "+base_series)
-                    title = title.removesuffix(": "+base_series.removeprefix("The ").strip())
+                    base_series = self.__ireplace(base_series, "\(Adapted\)", "")
+                    base_series = self.__ireplace(base_series, "\(Abridged\)", "")
+                    base_series = self.__ireplace(base_series, "\(Unabridged\)", "")
+                    base_series = self.__ireplace(base_series, "\(Author's Preferred Order\)", "")
+                    base_series = self.__iremovesuffix(base_series, 'trilogy')
+                    base_series = self.__iremovesuffix(base_series, 'novels')
+                    base_series = self.__iremovesuffix(base_series, 'series')
+                    base_series = base_series.strip()
+
+                    # Remove the series name from title
+                    title = self.__iremovesuffix(title, ": "+base_series)
+                    title = self.__iremovesuffix(title, ": The "+base_series)
+                    title = self.__iremovesuffix(title, ": "+base_series.removeprefix("The ").strip())
+                    title = self.__iremovesuffix(title, ": "+base_series+" Series")
+                    title = self.__iremovesuffix(title, ": A "+base_series+" Novel")
+                    title = self.__iremovesuffix(title, ": An "+base_series+" Novel")
+                    title = self.__iremovesuffix(title, ": The "+base_series+" Trilogy")
+                    title = self.__iremovesuffix(title, ": "+base_series+": The Complete Stories")
+                    title = self.__iremovesuffix(title, ": Book (.*) of "+base_series)
+                    title = self.__iremovesuffix(title, ": Book (.*) of The "+base_series)
+                    title = self.__iremovesuffix(title, ": "+base_series+": Book (.*)")
 
                     # Add book number to title
-                    title = ("Book {0} - "+title).format(book_num)
+                    if meta.get('book_num') and str(meta.get('book_num')) != "-1":
+                        title = ("Book {0} - "+title).format(book_num)
+
+                    # if meta.get('audible_id') == "B002V1BPOQ":
+                    #     print("base_series: "+base_series)
+                    #     print("title:       "+title)
+                    #     sys.exit()
 
                     meta.set('save_path', os.path.join(
                         self.media_path,
@@ -254,6 +298,8 @@ class aud_sorter:
                     os.remove(meta.get('save_path'))
                 else:
                     logging.info('valid file already exists, skipping...')
+                    meta.set('complete', True)
+                    meta.save(metadata_file)
                     continue
 
             #copy file to path
