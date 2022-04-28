@@ -165,6 +165,7 @@ class aud_sorter:
             title = self.__iremovesuffix(title, ": An Audible Original")
             title = self.__iremovesuffix(title, ": Full-Cast Production")
             title = self.__iremovesuffix(title, ": A Sci-Fi LitRPG")
+            title = self.__iremovesuffix(title, ": A LitRPG Saga")
             title = self.__iremovesuffix(title, ": A Memoir")
             title = title.strip()
 
@@ -191,6 +192,7 @@ class aud_sorter:
                     series_name = self.__ireplace(series_name, "\(Adapted\)", "")
                     series_name = self.__ireplace(series_name, "\(Abridged\)", "")
                     series_name = self.__ireplace(series_name, "\(Unabridged\)", "")
+                    series_name = self.__ireplace(series_name, "\(Audible Original\)", "")
                     series_name = self.__ireplace(series_name, "\(Author's Preferred Order\)", "")
                     series_name = self.__iremoveprefix(series_name, "The ")
                     series_name = series_name.strip()
